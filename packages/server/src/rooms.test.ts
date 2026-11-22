@@ -156,4 +156,37 @@ describe("RoomRegistry", () => {
     expect(rooms.connect(code, late)).toBeNull();
     expect(late.messages).toEqual([{ type: "roomNotFound" }]);
   });
+
+  it("tells both players who has calibrated, and forgets it while recalibrating or after leaving", () => {
+    const { rooms, scheduler } = setup();
+    const code = rooms.createRoom();
+    const [a, b, c] = [new FakeConnection(), new FakeConnection(), new FakeConnection()];
+    const pink = rooms.connect(code, a)!;
+    const blue = rooms.connect(code, b)!;
+
+    scheduler.fire();
+    expect(b.last("state")!.calibrated).toEqual({ pink: false, blue: false });
+
+    pink.receive({ type: "calibrated", value: true });
+    scheduler.fire();
+    expect(a.last("state")!.calibrated).toEqual({ pink: true, blue: false });
+    expect(b.last("state")!.calibrated).toEqual({ pink: true, blue: false });
+
+    // Calibration lasts across Fallen Runs in the Room.
+    pink.receive({ type: "thrust", value: 0.4 });
+    blue.receive({ type: "thrust", value: 0.4 });
+    scheduler.fire(30 * 10);
+    expect(b.last("fallen")).toBeDefined();
+    expect(b.last("state")!.calibrated.pink).toBe(true);
+
+    pink.receive({ type: "calibrated", value: false });
+    scheduler.fire();
+    expect(b.last("state")!.calibrated.pink).toBe(false);
+
+    pink.receive({ type: "calibrated", value: true });
+    pink.disconnect();
+    rooms.connect(code, c);
+    scheduler.fire();
+    expect(c.last("state")!.calibrated.pink).toBe(false);
+  });
 });
