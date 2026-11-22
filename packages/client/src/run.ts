@@ -13,10 +13,6 @@ import {
 export type Scores = Omit<Extract<ServerMessage, { type: "scores" }>, "type">;
 
 const NAME: PerBird<string> = { pink: "Pink", blue: "Blue" };
-const RUN_END_TEXT: Record<RunEndReason, string> = {
-  fallen: "Fallen: both Birds dropped with nothing holding them.",
-  abandoned: "Abandoned: your partner left and didn't come back in time.",
-};
 const RUN_END_WORD: Record<RunEndReason, string> = { fallen: "Fallen", abandoned: "Abandoned" };
 
 export interface RunView {
@@ -147,6 +143,14 @@ function openingLine(scores: Scores | null, replay: boolean): string {
     : `<p class="opening"><button class="replay">Replay the Opening</button></p>`;
 }
 
+/** Says how the Run ended, worded for `myBird`'s player. */
+export function runEndText(run: Extract<RunState, { phase: "ended" }>, myBird: Bird): string {
+  if (run.end === "fallen") return "Fallen: both Birds dropped with nothing holding them.";
+  return run.dropped === myBird
+    ? "Abandoned: you left and didn't come back in time."
+    : "Abandoned: your partner left and didn't come back in time.";
+}
+
 function render({ run, myBird, present, calibrated, scores, replayOpening }: RunView): string {
   if (run.phase === "countdown" || run.phase === "running") return "";
   const partner = partnerOf(myBird);
@@ -174,7 +178,7 @@ function render({ run, myBird, present, calibrated, scores, replayOpening }: Run
     run.phase === "ended"
       ? `<h2>Run End${team ? `: ${team}` : ""}</h2>
          <p class="distance">${run.distance.toFixed(1)} m</p>
-         <p>${RUN_END_TEXT[run.end]}</p>`
+         <p>${runEndText(run, myBird)}</p>`
       : `<h2>${team ? `Welcome back, ${team}!` : "Ready?"}</h2><p>The Run starts when you both press Ready.</p>`;
 
   const below = run.phase === "ended" ? teamSection(scores) : "";

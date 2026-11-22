@@ -242,12 +242,12 @@ describe("a player dropping mid-Run", () => {
     expect(playerReturned(run, "pink")).toEqual(run);
   });
 
-  it("ends the Run as Abandoned with its Distance after 30 s", () => {
+  it("ends the Run as Abandoned with its Distance after 30 s, recording who left", () => {
     const s = paused();
     const distance = s.run.phase === "paused" ? s.run.distance : -1;
     const later = tick(s.run, s.world, SILENT, RECONNECT_SECONDS);
 
-    expect(later.run).toEqual({ phase: "ended", seed: SEED, opening: false, end: "abandoned", distance, ready: { pink: false, blue: false } });
+    expect(later.run).toEqual({ phase: "ended", seed: SEED, opening: false, end: "abandoned", dropped: "blue", distance, ready: { pink: false, blue: false } });
     expect(playerReturned(later.run, "blue")).toEqual(later.run);
   });
 });

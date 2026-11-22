@@ -27,7 +27,10 @@ export type RunState =
   | ({ phase: "countdown"; secondsLeft: number } & RunCourse)
   | ({ phase: "running"; distance: number } & RunCourse)
   | ({ phase: "paused"; distance: number; dropped: Bird; secondsLeft: number } & RunCourse)
-  | ({ phase: "ended"; end: RunEndReason; distance: number; ready: PerBird<boolean> } & RunCourse);
+  | ({ phase: "ended"; distance: number; ready: PerBird<boolean> } & RunEnd & RunCourse);
+
+/** How an ended Run finished; an Abandoned one records whose player left. */
+export type RunEnd = { end: "fallen" } | { end: "abandoned"; dropped: Bird };
 
 /** What a Run's Course is built from: its seed, and whether it starts with the Opening. */
 export interface RunCourse {
@@ -137,10 +140,10 @@ export function stepRun(
       return { run: { phase: "running", seed, opening, distance }, world: next };
     }
     case "paused": {
-      const { seed, opening, distance } = run;
+      const { seed, opening, distance, dropped } = run;
       const secondsLeft = run.secondsLeft - dt;
       if (secondsLeft <= 1e-6) {
-        return { run: { phase: "ended", seed, opening, end: "abandoned", distance, ready: { ...NOBODY_READY } }, world };
+        return { run: { phase: "ended", seed, opening, end: "abandoned", dropped, distance, ready: { ...NOBODY_READY } }, world };
       }
       return { run: { ...run, secondsLeft }, world };
     }
