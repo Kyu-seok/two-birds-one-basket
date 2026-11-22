@@ -9,6 +9,7 @@ import {
   type ServerMessage,
   type WorldState,
 } from "@tbob/shared";
+import { KEYS_MODE, keyboardThrust } from "./keys.ts";
 import { openMic, type Mic } from "./mic.ts";
 import { createRoom, joinRoom, type RoomSocket } from "./net.ts";
 import { createRenderer } from "./render.ts";
@@ -43,7 +44,7 @@ function landing() {
   document.getElementById("create")!.onclick = async () => {
     try {
       const code = await createRoom();
-      history.replaceState(null, "", `/?room=${code}`);
+      history.replaceState(null, "", `/?room=${code}${KEYS_MODE ? "&keys" : ""}`);
       showPanel(`<p>Room Code</p><p class="code">${code}</p>
         <p>Send your partner this link:</p>
         <input class="link" readonly value="${roomLink(code)}" onclick="this.select()" />
@@ -58,7 +59,7 @@ function landing() {
 async function enter(roomCode: string) {
   let mic: Mic;
   try {
-    mic = await openMic();
+    mic = KEYS_MODE ? { loudness: () => 0 } : await openMic();
   } catch {
     showPanel(`<p class="error">We need your microphone to play. Allow it and reload.</p>`);
     return;
@@ -123,11 +124,14 @@ async function enter(roomCode: string) {
     addEventListener("keyup", (e) => e.code === "Space" && (boost = false));
 
     const sensitivity = setupSensitivity();
+    const keys = KEYS_MODE ? keyboardThrust() : null;
 
     const currentThrust = () => {
       // A hidden tab's frame loop pauses; send silence rather than a stale value.
       if (document.hidden) return 0;
-      return boost ? 1 : loudnessToThrust(mic.loudness(), rangeForSensitivity(sensitivity.value()));
+      if (boost) return 1;
+      if (keys) return keys();
+      return loudnessToThrust(mic.loudness(), rangeForSensitivity(sensitivity.value()));
     };
 
     setInterval(() => socket?.send({ type: "thrust", value: currentThrust() }), TICK_MS);

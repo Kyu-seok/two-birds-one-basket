@@ -2,11 +2,18 @@
 
 2-player co-op voice game. See `PLAN.md` for the full design.
 
+## Seeing a change working
+
+`npm run dev` starts the server and client. With no mic or keyboard:
+
+- `npm run bot -- [ROOMCODE] --thrust 0.4 --seconds 10` plays one Bird at a fixed Thrust and prints the state each second. Without a Room Code it creates a Room and prints its link.
+- Open the client link with `&keys` added (`http://localhost:5173/?room=ROOMCODE&keys`) to play the other Bird with keys: 0-9 set Thrust 0.0-0.9, `f` is full.
+
 ## Agent skills
 
 ### Issue tracker
 
-Issues are tracked in GitHub Issues on `Kyu-seok/two-birds-one-rope` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues are tracked in GitHub Issues on `Kyu-seok/two-birds-one-rope`. Read one with `gh issue view <n> --json number,title,body,labels,comments` (plain `gh issue view` prints nothing here). See `docs/agents/issue-tracker.md` for the rest.
 
 ### Triage labels
 

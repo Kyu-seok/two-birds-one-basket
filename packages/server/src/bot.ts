@@ -7,7 +7,13 @@
  *
  * Keys: 0-9 set Thrust 0.0-0.9, f = full, w = slow wave 0..1, q = quit.
  * Below 0.6 the Bird walks (0 stands still); 6-9 and f jump.
+ *
+ * Scripted, with no keyboard (for agents and smoke tests):
+ *   npm run bot -- [ABCDE] --thrust 0.4 [--seconds 10]
+ * holds that Thrust, prints the state once a second on its own line, and quits after
+ * --seconds if given.
  */
+import { parseArgs } from "node:util";
 import { WebSocket } from "ws";
 import { TICK_MS, type BirdState, type ServerMessage } from "@tbob/shared";
 
@@ -15,7 +21,12 @@ const SERVER = process.env.SERVER ?? "http://localhost:8100";
 const CLIENT = process.env.CLIENT ?? "http://localhost:5173";
 
 async function main() {
-  let roomCode = process.argv[2]?.toUpperCase();
+  const { values, positionals } = parseArgs({
+    allowPositionals: true,
+    options: { thrust: { type: "string" }, seconds: { type: "string" } },
+  });
+  const scripted = values.thrust !== undefined;
+  let roomCode = positionals[0]?.toUpperCase();
   if (!roomCode) {
     const res = await fetch(`${SERVER}/api/rooms`, { method: "POST" });
     roomCode = ((await res.json()) as { roomCode: string }).roomCode;
@@ -23,7 +34,7 @@ async function main() {
   }
 
   const ws = new WebSocket(`${SERVER.replace(/^http/, "ws")}/ws?room=${roomCode}`);
-  let thrust = 0;
+  let thrust = scripted ? Math.min(1, Math.max(0, Number(values.thrust) || 0)) : 0;
   let wave = false;
   let status = "";
 
@@ -31,7 +42,11 @@ async function main() {
     const msg = JSON.parse(String(data)) as ServerMessage;
     switch (msg.type) {
       case "joined":
-        console.log(`Bot joined as the ${msg.bird} Bird. Keys: 0-9 Thrust, f full, w wave, q quit.`);
+        console.log(
+          scripted
+            ? `Bot joined as the ${msg.bird} Bird, holding Thrust ${thrust}.`
+            : `Bot joined as the ${msg.bird} Bird. Keys: 0-9 Thrust, f full, w wave, q quit.`,
+        );
         break;
       case "roomFull":
       case "roomNotFound":
@@ -65,9 +80,21 @@ async function main() {
       ws.send(JSON.stringify({ type: "thrust", value: thrust }));
     }, TICK_MS);
     setInterval(() => ws.send(JSON.stringify({ type: "ping", t: performance.now() })), 1000);
-    setInterval(() => process.stdout.write(`\r${status.padEnd(90)}`), 100);
+    if (scripted) {
+      setInterval(() => console.log(status), 1000);
+      if (values.seconds !== undefined) {
+        setTimeout(() => {
+          console.log(status);
+          ws.close();
+          process.exit(0);
+        }, Number(values.seconds) * 1000);
+      }
+    } else {
+      setInterval(() => process.stdout.write(`\r${status.padEnd(90)}`), 100);
+    }
   });
 
+  if (scripted) return;
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
   process.stdin.setEncoding("utf8");
   process.stdin.on("data", (key: string) => {
