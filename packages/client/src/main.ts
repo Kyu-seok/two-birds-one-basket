@@ -3,12 +3,14 @@ import {
   SENSITIVITY_MAX,
   SENSITIVITY_MIN,
   TICK_MS,
+  calibratedRange,
   loudnessToThrust,
-  rangeForSensitivity,
   type Bird,
+  type Calibration,
   type ServerMessage,
   type WorldState,
 } from "@tbob/shared";
+import { runCalibration } from "./calibration.ts";
 import { KEYS_MODE, keyboardThrust } from "./keys.ts";
 import { openMic, type Mic } from "./mic.ts";
 import { createRoom, joinRoom, type RoomSocket } from "./net.ts";
@@ -126,12 +128,38 @@ async function enter(roomCode: string) {
     const sensitivity = setupSensitivity();
     const keys = KEYS_MODE ? keyboardThrust() : null;
 
+    // Until the player has calibrated (and while they redo it) their voice moves nothing.
+    let calibration: Calibration | null = null;
+    const recalibrate = document.getElementById("recalibrate") as HTMLButtonElement;
+    const doCalibration = async () => {
+      calibration = null;
+      socket?.send({ type: "calibrated", value: false });
+      recalibrate.disabled = true;
+      panel.hidden = false;
+      calibration = await runCalibration(mic, panelBody);
+      panel.hidden = true;
+      recalibrate.disabled = false;
+      socket?.send({ type: "calibrated", value: true });
+    };
+    if (keys) {
+      // Keys set Thrust directly, so there is nothing to calibrate.
+      recalibrate.hidden = true;
+      socket?.send({ type: "calibrated", value: true });
+    } else {
+      recalibrate.onclick = () => {
+        recalibrate.blur();
+        void doCalibration();
+      };
+      void doCalibration();
+    }
+
     const currentThrust = () => {
       // A hidden tab's frame loop pauses; send silence rather than a stale value.
       if (document.hidden) return 0;
       if (boost) return 1;
       if (keys) return keys();
-      return loudnessToThrust(mic.loudness(), rangeForSensitivity(sensitivity.value()));
+      if (!calibration) return 0;
+      return loudnessToThrust(mic.loudness(), calibratedRange(calibration, sensitivity.value()));
     };
 
     setInterval(() => socket?.send({ type: "thrust", value: currentThrust() }), TICK_MS);
@@ -175,9 +203,9 @@ async function enter(roomCode: string) {
 
 const SENSITIVITY_KEY = "tbob.sensitivity";
 
-/** The in-game Sensitivity slider; the choice is remembered in this browser. */
+/** The in-game Sensitivity slider and recalibrate button; the Sensitivity is remembered in this browser. */
 function setupSensitivity() {
-  const label = document.getElementById("sensitivity")!;
+  const controls = document.getElementById("controls")!;
   const input = document.getElementById("sensitivity-input") as HTMLInputElement;
   const output = document.getElementById("sensitivity-value") as HTMLOutputElement;
 
@@ -204,7 +232,7 @@ function setupSensitivity() {
   };
   // Let Space keep working as the test boost after the slider is used.
   input.onchange = () => input.blur();
-  label.hidden = false;
+  controls.hidden = false;
 
   return { value: () => value };
 }
