@@ -6,6 +6,7 @@ import {
   type Bird,
   type BirdState,
   type PerBird,
+  type RunState,
   type WorldState,
 } from "@tbob/shared";
 
@@ -37,8 +38,8 @@ const NAME: PerBird<string> = { pink: "Pink", blue: "Blue" };
 
 export interface Frame {
   world: WorldState;
-  /** How far the Bird behind has got, in meters. */
-  distance: number;
+  /** The Run, for its countdown and Distance. */
+  run: RunState;
   /** What each Bird is doing this frame: own Bird from the local mic, partner's from the server. */
   thrust: PerBird<number>;
   present: PerBird<boolean>;
@@ -46,8 +47,6 @@ export interface Frame {
   myLoudness: number;
   pings: PerBird<number | null>;
   roomCode: string;
-  /** Seconds left to show the Fallen banner; 0 hides it. */
-  fallenBanner: number;
   dt: number;
 }
 
@@ -223,7 +222,7 @@ function drawHud(ctx: CanvasRenderingContext2D, f: Frame, w: number, h: number) 
   ctx.font = "14px system-ui";
   ctx.textAlign = "left";
   ctx.fillText(`Room ${f.roomCode} · you are ${NAME[f.myBird]}`, 16, 24);
-  ctx.fillText(`Distance ${f.distance.toFixed(1)} m`, 16, 44);
+  if ("distance" in f.run) ctx.fillText(`Distance ${f.run.distance.toFixed(1)} m`, 16, 44);
   ctx.fillText("Hold Space for full Thrust (test)", 16, 64);
 
   const pingText = (bird: Bird) => {
@@ -240,11 +239,14 @@ function drawHud(ctx: CanvasRenderingContext2D, f: Frame, w: number, h: number) 
     ctx.fillText(pingText(bird), w - 16, 24 + i * 20);
   });
 
-  if (f.fallenBanner > 0) {
+  if (f.run.phase === "countdown") {
+    // 3, 2, 1, each shrinking and fading through its second.
+    const n = Math.ceil(f.run.secondsLeft - 1e-6);
+    const through = n - f.run.secondsLeft;
     ctx.textAlign = "center";
-    ctx.font = "bold 32px system-ui";
-    ctx.globalAlpha = Math.min(1, f.fallenBanner);
-    ctx.fillText("Fallen! Back to the start", w / 2, h * 0.3);
+    ctx.font = `bold ${Math.round(96 - 32 * through)}px system-ui`;
+    ctx.globalAlpha = 1 - 0.6 * through;
+    ctx.fillText(String(n), w / 2, h * 0.32);
     ctx.globalAlpha = 1;
   }
 
