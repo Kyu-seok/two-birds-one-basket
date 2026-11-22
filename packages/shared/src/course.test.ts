@@ -28,7 +28,8 @@ describe("a random Course", () => {
   });
 
   it("only places Pieces of Tiers that have Pieces, falling back to an easier Tier", () => {
-    const tiers = randomCourse(5).piecesBetween(0, 3000).map((p) => p.piece.tier);
+    const easyOnly = PIECES.filter((p) => p.tier === "easy");
+    const tiers = randomCourse(5, easyOnly).piecesBetween(0, 3000).map((p) => p.piece.tier);
     expect(new Set(tiers)).toEqual(new Set(["easy"]));
   });
 

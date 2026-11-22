@@ -1,5 +1,6 @@
 import { BIRDS, partnerOf, type Bird, type PerBird } from "./bird.ts";
 import type { Course, Span } from "./course.ts";
+import { hasReformed, layoutAt, windAt, type Crumbling, type Layout, type PlacedSpan } from "./hazards.ts";
 
 /**
  * World units are meters; y points up and ground level is y = 0. Raised ground (steps) sits above
@@ -26,6 +27,10 @@ export interface WorldState {
    * goes below ground level.
    */
   fallen: boolean;
+  /** Seconds since the Run started. Timed hazards (moving and crumbling platforms, gusts) follow it. */
+  time: number;
+  /** When each crumbling platform was first stood on (see `hazards.ts`). */
+  crumbling: Crumbling;
 }
 
 /** Each Bird's Thrust, 0..1. */
@@ -61,6 +66,13 @@ export const PHYSICS = {
   ledgeGraceSeconds: 0.2,
   /** A climbing Bird can't pull itself closer than this to its partner. */
   ropeLengthMin: 0.5,
+  /**
+   * How hard a jump-level voice pushes a Bird hanging on a taut Rope forward along its swing
+   * (m/s²): enough to swing it from hanging still most of the way up to level with its partner.
+   */
+  swingPush: 10,
+  /** How far below or above a ledge's top a swinging Bird can be and still catch it. */
+  grabReach: 0.5,
 } as const;
 
 function standingBird(x: number): BirdState {
@@ -68,29 +80,127 @@ function standingBird(x: number): BirdState {
 }
 
 export function initialWorld(): WorldState {
-  return { birds: { pink: standingBird(0), blue: standingBird(1.5) }, ropeLength: PHYSICS.ropeLength, fallen: false };
+  return { birds: { pink: standingBird(0), blue: standingBird(1.5) }, ropeLength: PHYSICS.ropeLength, fallen: false, time: 0, crumbling: {} };
 }
 
 /** Advances the world by one simulation tick. Pure: returns a new state. */
 export function stepWorld(w: WorldState, thrust: Thrusts, dt: number, course: Course): WorldState {
-  // A hanging Bird climbs hand over hand, at its walking pace, taking in Rope.
+  const time = w.time + dt;
+  // The Course near a point before and after this tick: moving platforms move with the Run's clock.
+  const before: Around = (x) => layoutAt(course, x - NEAR, x + NEAR, w.time, w.crumbling);
+  const after: Around = (x) => layoutAt(course, x - NEAR, x + NEAR, time, w.crumbling);
+
+  // A hanging Bird climbs hand over hand, at its walking pace, taking in Rope. A jump-level voice
+  // swings it instead (see `swung`).
   let ropeLength = w.ropeLength;
   for (const bird of BIRDS) {
-    if (isHanging(w.birds, bird)) ropeLength -= walkSpeed(thrust[bird]) * dt;
+    const climbing = isHanging(w.birds, bird) || isSwinging(w.birds[bird], w.birds[partnerOf(bird)], w.ropeLength);
+    if (climbing && thrust[bird] < PHYSICS.jumpThreshold) ropeLength -= walkSpeed(thrust[bird]) * dt;
   }
   ropeLength = Math.max(PHYSICS.ropeLengthMin, ropeLength);
 
-  const birds = {
-    pink: stepBird(w.birds.pink, thrust.pink, dt, course),
-    blue: stepBird(w.birds.blue, thrust.blue, dt, course),
+  const step = (bird: Bird) => {
+    const b = swung(w, bird, thrust[bird], dt);
+    return stepBird(b, thrust[bird], dt, after, carried(b, before, after), windAt(after(b.x), b.x, time));
   };
+  const birds = { pink: step("pink"), blue: step("blue") };
   // Back on the ground together, the Rope is let out again.
   if (bothStanding(birds)) ropeLength = PHYSICS.ropeLength;
-  holdRope(birds, ropeLength, course);
+  holdRope(birds, ropeLength, after);
   for (const bird of BIRDS) {
-    if (ropeLength <= PHYSICS.ropeLengthMin) climbOverLip(birds[bird], birds[partnerOf(bird)], course);
+    if (ropeLength <= PHYSICS.ropeLengthMin) climbOverLip(birds[bird], birds[partnerOf(bird)], after);
   }
-  return { birds, ropeLength, fallen: BIRDS.every((bird) => hasDropped(birds[bird], course)) };
+  for (const bird of BIRDS) catchLedge(birds[bird], birds[partnerOf(bird)], ropeLength, after);
+  return {
+    birds,
+    ropeLength,
+    fallen: BIRDS.every((bird) => hasDropped(birds[bird], after)),
+    time,
+    crumbling: crumble(w.crumbling, birds, after, time),
+  };
+}
+
+/** The Course near `x` at one moment of this tick. */
+type Around = (x: number) => Layout;
+
+/** How much slack still counts as a taut Rope. */
+const TAUT = 0.05;
+
+/** A Bird off the ground, below its partner standing on ground, at the end of a taut Rope. */
+function isSwinging(b: BirdState, anchor: BirdState, length: number): boolean {
+  return !b.grounded && anchor.grounded && b.y < anchor.y && Math.hypot(b.x - anchor.x, b.y - anchor.y) >= length - TAUT;
+}
+
+/**
+ * A swinging Bird with a jump-level voice pushes itself forward along its swing, across the Rope.
+ * This is how it gets across a gap too wide to jump while its partner anchors.
+ */
+function swung(w: WorldState, bird: Bird, thrust: number, dt: number): BirdState {
+  const b = w.birds[bird];
+  const anchor = w.birds[partnerOf(bird)];
+  if (thrust < PHYSICS.jumpThreshold || !isSwinging(b, anchor, w.ropeLength)) return b;
+  const dist = Math.hypot(b.x - anchor.x, b.y - anchor.y);
+  // Across the Rope, the way the Course goes.
+  let tx = -(b.y - anchor.y) / dist;
+  let ty = (b.x - anchor.x) / dist;
+  if (tx < 0) (tx = -tx), (ty = -ty);
+  const push = PHYSICS.swingPush * dt;
+  return { ...b, vx: b.vx + tx * push, vy: b.vy + ty * push };
+}
+
+/**
+ * A swinging Bird that comes within `grabReach` of the top of a ledge other than its partner's
+ * (up its wall, past its corner or just above it) catches it and stands there.
+ */
+function catchLedge(b: BirdState, anchor: BirdState, length: number, around: Around) {
+  if (!isSwinging(b, anchor, length)) return;
+  const near = around(b.x);
+  const home = standingOn(near, anchor.x, anchor.y);
+  const onTop = (s: Span) => Math.min(s.to, Math.max(s.from, b.x));
+  const ledge = near.ground.find(
+    (s) => s !== home && Math.hypot(onTop(s) - b.x, s.height - b.y) <= PHYSICS.grabReach,
+  );
+  if (!ledge) return;
+  b.x = onTop(ledge);
+  b.vx = 0;
+  land(b, ledge.height);
+}
+
+/** How far the moving platform a Bird stands on carries it this tick. */
+function carried(b: BirdState, before: Around, after: Around): number {
+  if (!b.grounded) return 0;
+  const under = standingOn(before(b.x), b.x, b.y);
+  if (!under?.move) return 0;
+  const moved = after(b.x).ground.find((s) => s.key === under.key);
+  return moved ? moved.from - under.from : 0;
+}
+
+/** The span a Bird with its feet at `x`, `y` stands on, if any. */
+function standingOn(near: Layout, x: number, y: number): PlacedSpan | undefined {
+  return near.ground.find((g) => x >= g.from && x <= g.to && Math.abs(g.height - y) < 1e-6);
+}
+
+/** How far behind the Birds a crumbled platform is forgotten. */
+const CRUMBLE_MEMORY = 50;
+
+/** Starts the clock on each crumbling platform a Bird stands on for the first time (or again, once it is back). */
+function crumble(was: Crumbling, birds: PerBird<BirdState>, after: Around, time: number): Crumbling {
+  let next: Record<string, number> | undefined;
+  const edit = () => (next ??= { ...was });
+  for (const bird of BIRDS) {
+    const b = birds[bird];
+    if (!b.grounded) continue;
+    const span = standingOn(after(b.x), b.x, b.y);
+    if (!span?.crumble) continue;
+    const touched = (next ?? was)[span.key];
+    if (touched !== undefined && !hasReformed(span, touched, time)) continue;
+    edit()[span.key] = time;
+  }
+  const behind = Math.min(birds.pink.x, birds.blue.x) - CRUMBLE_MEMORY;
+  for (const key of Object.keys(next ?? was)) {
+    if (Number.parseFloat(key) < behind) delete edit()[key];
+  }
+  return next ?? was;
 }
 
 /**
@@ -116,14 +226,23 @@ function inLedgeGrace(b: BirdState): boolean {
  * Below the surface, sinking, too late to jump back out, and with no floor under it: only the
  * Rope can hold it now. A pit's floor holds it like the Rope would.
  */
-function hasDropped(b: BirdState, course: Course): boolean {
-  return b.y < 0 && b.vy <= 0 && !inLedgeGrace(b) && groundBelow(surroundings(course, b.x), b.x, b.y) === null;
+function hasDropped(b: BirdState, around: Around): boolean {
+  return b.y < 0 && b.vy <= 0 && !inLedgeGrace(b) && groundBelow(around(b.x), b.x, b.y) === null;
 }
 
 /** A climber that has taken in all the Rope it can scrambles onto the lip on its partner's side. */
-function climbOverLip(b: BirdState, partner: BirdState, course: Course) {
-  if (b.y >= 0 || !partner.grounded) return;
-  const near = surroundings(course, b.x);
+function climbOverLip(b: BirdState, partner: BirdState, around: Around) {
+  if (!partner.grounded || b.grounded) return;
+  const near = around(b.x);
+  if (b.y >= 0) {
+    // Up the side of raised ground: onto the partner's ledge, at its edge.
+    const ledge = standingOn(near, partner.x, partner.y);
+    if (!ledge || b.y >= partner.y) return;
+    land(b, ledge.height);
+    b.x = Math.min(ledge.to, Math.max(ledge.from, b.x));
+    b.vx = 0;
+    return;
+  }
   const gap = nearestGap(near, b.x);
   if (!gap) return;
   const lip = partner.x <= gap.start ? gap.start : gap.end;
@@ -140,7 +259,11 @@ function land(b: BirdState, height: number) {
   b.airTime = 0;
 }
 
-function stepBird(b: BirdState, thrust: number, dt: number, course: Course): BirdState {
+/**
+ * Moves one Bird by its own voice, plus `carry` meters from a moving platform under it and a
+ * gust's `wind` (m/s along the Course).
+ */
+function stepBird(b: BirdState, thrust: number, dt: number, around: Around, carry: number, wind: number): BirdState {
   let { vx, vy, jumped, airTime } = b;
   if (b.grounded) vx = walkSpeed(thrust);
   if (b.grounded || inLedgeGrace(b)) {
@@ -156,8 +279,8 @@ function stepBird(b: BirdState, thrust: number, dt: number, course: Course): Bir
   }
 
   vy -= PHYSICS.gravity * dt;
-  const near = surroundings(course, b.x);
-  const next: BirdState = { ...b, x: b.x + vx * dt, y: b.y, vx, vy, grounded: false, jumped };
+  const near = around(b.x);
+  const next: BirdState = { ...b, x: b.x + (vx + wind) * dt + carry, y: b.y, vx, vy, grounded: false, jumped };
   next.airTime = airTime + dt;
 
   // Across first: the side of a step, of a low ceiling or of a pit is a wall.
@@ -183,7 +306,7 @@ function stepBird(b: BirdState, thrust: number, dt: number, course: Course): Bir
 }
 
 /** Pulls the Birds back within the Rope's length. Mutates the freshly stepped Birds. */
-function holdRope(birds: PerBird<BirdState>, length: number, course: Course) {
+function holdRope(birds: PerBird<BirdState>, length: number, around: Around) {
   const { pink, blue } = birds;
   const dx = blue.x - pink.x;
   const dy = blue.y - pink.y;
@@ -227,7 +350,7 @@ function holdRope(birds: PerBird<BirdState>, length: number, course: Course) {
   for (const bird of BIRDS) {
     const b = birds[bird];
     if (b.grounded) continue;
-    const near = surroundings(course, b.x);
+    const near = around(b.x);
     const was = before[bird];
     const floor = groundBelow(near, b.x, was.y);
     if (floor !== null && b.y < floor) {
@@ -248,24 +371,11 @@ function holdRope(birds: PerBird<BirdState>, length: number, course: Course) {
   }
 }
 
-/** The Course's ground and ceilings near `x`, in Course coordinates. */
-interface Surroundings {
-  ground: Span[];
-  ceilings: Span[];
-}
+/** The Course near a Bird, in Course coordinates. */
+type Surroundings = Layout;
 
 /** Far enough either side of a Bird to cover the Rope's reach and a tick's travel. */
 const NEAR = 12;
-
-function surroundings(course: Course, x: number): Surroundings {
-  const near: Surroundings = { ground: [], ceilings: [] };
-  for (const { x: at, piece } of course.piecesBetween(x - NEAR, x + NEAR)) {
-    const place = (s: Span) => ({ from: at + s.from, to: at + s.to, height: s.height });
-    near.ground.push(...piece.ground.map(place));
-    near.ceilings.push(...piece.ceilings.map(place));
-  }
-  return near;
-}
 
 /** A tiny tolerance, so a Bird resting exactly on a surface isn't inside it. */
 const EPS = 1e-9;

@@ -9,3 +9,5 @@ export * from "./run.ts";
 export * from "./voice.ts";
 export * from "./scores.ts";
 export * from "./identity.ts";
+export * from "./hazards.ts";
+export * from "./hazard-pieces.ts";
