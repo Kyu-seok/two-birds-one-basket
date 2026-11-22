@@ -18,16 +18,15 @@ export type RunEndReason = "fallen" | "abandoned";
  * same Ready press. The world only moves while `running`; `paused` freezes it with the Run's
  * Distance kept.
  *
- * Each Run has its own random Course, built from `seed` and starting with the Opening if
- * `opening` (see `runCourse`), picked when its countdown starts. Both clients rebuild the same
- * Course from them.
+ * Each Run has its own random Course, built from its `course` (see `runCourse`), picked when
+ * its countdown starts. Both clients rebuild the same Course from it.
  */
 export type RunState =
   | { phase: "waiting"; ready: PerBird<boolean> }
-  | ({ phase: "countdown"; secondsLeft: number } & RunCourse)
-  | ({ phase: "running"; distance: number } & RunCourse)
-  | ({ phase: "paused"; distance: number; dropped: Bird; secondsLeft: number } & RunCourse)
-  | ({ phase: "ended"; distance: number; ready: PerBird<boolean> } & RunEnd & RunCourse);
+  | { phase: "countdown"; course: RunCourse; secondsLeft: number }
+  | { phase: "running"; course: RunCourse; distance: number }
+  | { phase: "paused"; course: RunCourse; distance: number; dropped: Bird; secondsLeft: number }
+  | ({ phase: "ended"; course: RunCourse; distance: number; ready: PerBird<boolean> } & RunEnd);
 
 /** How an ended Run finished; an Abandoned one records whose player left. */
 export type RunEnd = { end: "fallen" } | { end: "abandoned"; dropped: Bird };
@@ -76,9 +75,9 @@ export function setReady(run: RunState, bird: Bird, value: boolean): RunState {
 export function playerLeft(run: RunState, bird: Bird, canReturn = true): RunState {
   if (run.phase === "countdown") return newRoomRun();
   if (run.phase === "running" || run.phase === "paused") {
-    const { seed, opening, distance } = run;
-    if (!canReturn) return { phase: "ended", seed, opening, end: "abandoned", dropped: bird, distance, ready: { ...NOBODY_READY } };
-    if (run.phase === "running") return { phase: "paused", seed, opening, distance, dropped: bird, secondsLeft: RECONNECT_SECONDS };
+    const { course, distance } = run;
+    if (!canReturn) return { phase: "ended", course, end: "abandoned", dropped: bird, distance, ready: { ...NOBODY_READY } };
+    if (run.phase === "running") return { phase: "paused", course, distance, dropped: bird, secondsLeft: RECONNECT_SECONDS };
     return run;
   }
   return setReady(run, bird, false);
@@ -86,7 +85,7 @@ export function playerLeft(run: RunState, bird: Bird, canReturn = true): RunStat
 
 /** A player came back to their Bird: a Run paused for them resumes where it stopped. */
 export function playerReturned(run: RunState, bird: Bird): RunState {
-  if (run.phase === "paused" && run.dropped === bird) return { phase: "running", seed: run.seed, opening: run.opening, distance: run.distance };
+  if (run.phase === "paused" && run.dropped === bird) return { phase: "running", course: run.course, distance: run.distance };
   return run;
 }
 
@@ -106,7 +105,7 @@ export type CourseOf = (seed: number, opening: boolean) => Course;
 
 /** The Course a Run is on, the same on the server and both clients. */
 export function runCourse(run: RunState, courseOf: CourseOf = courseForSeed): Course {
-  return "seed" in run ? courseOf(run.seed, run.opening) : START_ONLY;
+  return "course" in run ? courseOf(run.course.seed, run.course.opening) : START_ONLY;
 }
 
 /**
@@ -127,7 +126,7 @@ export function stepRun(
       if (!(run.ready.pink && run.ready.blue)) return { run, world };
       // The countdown's first tick is this one, with both Birds back at the start of a new Course.
       return stepRun(
-        { phase: "countdown", ...nextCourse(), secondsLeft: COUNTDOWN_SECONDS },
+        { phase: "countdown", course: nextCourse(), secondsLeft: COUNTDOWN_SECONDS },
         initialWorld(),
         thrust,
         dt,
@@ -135,26 +134,26 @@ export function stepRun(
         courseOf,
       );
     case "countdown": {
-      const { seed, opening } = run;
+      const { course } = run;
       const secondsLeft = run.secondsLeft - dt;
-      if (wholeSecondsLeft(secondsLeft) <= 0) return { run: { phase: "running", seed, opening, distance: 0 }, world };
-      return { run: { phase: "countdown", seed, opening, secondsLeft }, world };
+      if (wholeSecondsLeft(secondsLeft) <= 0) return { run: { phase: "running", course, distance: 0 }, world };
+      return { run: { phase: "countdown", course, secondsLeft }, world };
     }
     case "running": {
-      const { seed, opening } = run;
-      const course = courseOf(seed, opening);
-      const next = stepWorld(world, thrust, dt, course);
-      const distance = Math.max(run.distance, distanceOf(next, course));
+      const { course } = run;
+      const built = courseOf(course.seed, course.opening);
+      const next = stepWorld(world, thrust, dt, built);
+      const distance = Math.max(run.distance, distanceOf(next, built));
       if (next.fallen) {
-        return { run: { phase: "ended", seed, opening, end: "fallen", distance, ready: { ...NOBODY_READY } }, world: next };
+        return { run: { phase: "ended", course, end: "fallen", distance, ready: { ...NOBODY_READY } }, world: next };
       }
-      return { run: { phase: "running", seed, opening, distance }, world: next };
+      return { run: { phase: "running", course, distance }, world: next };
     }
     case "paused": {
-      const { seed, opening, distance, dropped } = run;
+      const { course, distance, dropped } = run;
       const secondsLeft = run.secondsLeft - dt;
       if (wholeSecondsLeft(secondsLeft) <= 0) {
-        return { run: { phase: "ended", seed, opening, end: "abandoned", dropped, distance, ready: { ...NOBODY_READY } }, world };
+        return { run: { phase: "ended", course, end: "abandoned", dropped, distance, ready: { ...NOBODY_READY } }, world };
       }
       return { run: { ...run, secondsLeft }, world };
     }

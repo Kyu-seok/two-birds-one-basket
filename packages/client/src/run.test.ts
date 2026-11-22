@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { runEndText } from "./run.ts";
 
-const course = { seed: 1, opening: false, distance: 3, ready: { pink: false, blue: false } };
+const course = { course: { seed: 1, opening: false }, distance: 3, ready: { pink: false, blue: false } };
 
 describe("the Run End text", () => {
   it("tells the player who left that they left, and their partner that the partner did", () => {

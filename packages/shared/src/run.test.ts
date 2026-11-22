@@ -62,7 +62,7 @@ describe("starting a Run", () => {
 
   it("starts the Run when the countdown ends, and the Birds then move", () => {
     const s = started();
-    expect(s.run).toEqual({ phase: "running", seed: SEED, opening: false, distance: 0 });
+    expect(s.run).toEqual({ phase: "running", course: { seed: SEED, opening: false }, distance: 0 });
 
     const later = tick(s.run, s.world, { pink: 0.4, blue: 0.4 }, 1);
     expect(later.world.birds.pink.x).toBeGreaterThan(0.5);
@@ -106,16 +106,16 @@ describe("Distance", () => {
     expect(distanceOf(standing(50), courseForSeed(3, true))).toBe(0);
     expect(distanceOf(standing(60), courseForSeed(3, true))).toBeCloseTo(4);
 
-    const run: RunState = { phase: "running", seed: 3, opening: true, distance: 0 };
+    const run: RunState = { phase: "running", course: { seed: 3, opening: true }, distance: 0 };
     const s = stepRun(run, standing(50), SILENT, TICK, () => ({ seed: 3, opening: true }));
     expect(s.run).toMatchObject({ phase: "running", distance: 0 });
   });
 
   it("never goes back down when the Birds step backward or swing", () => {
     const s = started();
-    const run: RunState = { phase: "running", seed: SEED, opening: false, distance: 5 };
+    const run: RunState = { phase: "running", course: { seed: SEED, opening: false }, distance: 5 };
     const later = tick(run, s.world, SILENT, 0.5);
-    expect(later.run).toEqual({ phase: "running", seed: SEED, opening: false, distance: 5 });
+    expect(later.run).toEqual({ phase: "running", course: { seed: SEED, opening: false }, distance: 5 });
   });
 });
 
@@ -168,7 +168,7 @@ describe("Again", () => {
     expect(counting.world).toEqual(initialWorld());
 
     const running = tick(counting.run, counting.world, SILENT, COUNTDOWN_SECONDS);
-    expect(running.run).toEqual({ phase: "running", seed: SEED, opening: false, distance: 0 });
+    expect(running.run).toEqual({ phase: "running", course: { seed: SEED, opening: false }, distance: 0 });
   });
 
   it("Ready can't be pressed during a Run", () => {
@@ -180,31 +180,31 @@ describe("Again", () => {
 describe("the Course", () => {
   it("each Run gets a new one, picked as its countdown starts and kept to its Run End", () => {
     const first = tick(bothReady(newRoomRun()), initialWorld(), SILENT, 0.5, 11);
-    expect(first.run).toMatchObject({ phase: "countdown", seed: 11 });
+    expect(first.run).toMatchObject({ phase: "countdown", course: { seed: 11 } });
 
     const ended = tick(first.run, first.world, { pink: 0.4, blue: 0.4 }, 15, 12);
-    expect(ended.run).toMatchObject({ phase: "ended", seed: 11 });
+    expect(ended.run).toMatchObject({ phase: "ended", course: { seed: 11 } });
 
     const second = tick(bothReady(ended.run), ended.world, SILENT, 0.5, 13);
-    expect(second.run).toMatchObject({ phase: "countdown", seed: 13 });
+    expect(second.run).toMatchObject({ phase: "countdown", course: { seed: 13 } });
   });
 
   it("is the Run's seeded random Course, or just the start before the first Run", () => {
-    const running: RunState = { phase: "running", seed: 5, opening: false, distance: 0 };
+    const running: RunState = { phase: "running", course: { seed: 5, opening: false }, distance: 0 };
     expect(runCourse(running).piecesBetween(0, 200)).toEqual(randomCourse(5).piecesBetween(0, 200));
     expect(runCourse(newRoomRun()).piecesBetween(0, 200).map((p) => p.piece.name)).toEqual(["start"]);
   });
 
   it("starts with the Opening when the Room asks for it as the Run's countdown starts", () => {
     const first = tick(bothReady(newRoomRun()), initialWorld(), SILENT, 0.5, 11, true);
-    expect(first.run).toMatchObject({ phase: "countdown", seed: 11, opening: true });
+    expect(first.run).toMatchObject({ phase: "countdown", course: { seed: 11, opening: true } });
     expect(runCourse(first.run).piecesBetween(0, 1)[0]!.piece).toBe(OPENING);
 
     const ended = tick(first.run, first.world, { pink: 0.4, blue: 0.4 }, 15, 12, false);
-    expect(ended.run).toMatchObject({ phase: "ended", opening: true });
+    expect(ended.run).toMatchObject({ phase: "ended", course: { opening: true } });
 
     const second = tick(bothReady(ended.run), ended.world, SILENT, 0.5, 13, false);
-    expect(second.run).toMatchObject({ phase: "countdown", seed: 13, opening: false });
+    expect(second.run).toMatchObject({ phase: "countdown", course: { seed: 13, opening: false } });
     expect(runCourse(second.run).piecesBetween(0, 1)[0]!.piece).not.toBe(OPENING);
   });
 });
@@ -231,7 +231,7 @@ describe("a player dropping mid-Run", () => {
     const waited = tick(s.run, s.world, SILENT, 20);
 
     const back = playerReturned(waited.run, "blue");
-    expect(back).toEqual({ phase: "running", seed: SEED, opening: false, distance });
+    expect(back).toEqual({ phase: "running", course: { seed: SEED, opening: false }, distance });
     expect(distance).toBeGreaterThan(0.5);
     const moved = tick(back, waited.world, { pink: 0.4, blue: 0.4 }, 0.5);
     expect(moved.world.birds.pink.x).toBeGreaterThan(waited.world.birds.pink.x);
@@ -242,7 +242,7 @@ describe("a player dropping mid-Run", () => {
     const walked = tick(s.run, s.world, { pink: 0.4, blue: 0.4 }, 1);
     const distance = walked.run.phase === "running" ? walked.run.distance : -1;
     expect(playerLeft(walked.run, "blue", false)).toEqual({
-      phase: "ended", seed: SEED, opening: false, end: "abandoned", dropped: "blue", distance, ready: { pink: false, blue: false },
+      phase: "ended", course: { seed: SEED, opening: false }, end: "abandoned", dropped: "blue", distance, ready: { pink: false, blue: false },
     });
     // The same if they leave while the Run is paused for their partner.
     expect(playerLeft(paused().run, "pink", false)).toMatchObject({ phase: "ended", end: "abandoned", dropped: "pink" });
@@ -258,7 +258,7 @@ describe("a player dropping mid-Run", () => {
     const distance = s.run.phase === "paused" ? s.run.distance : -1;
     const later = tick(s.run, s.world, SILENT, RECONNECT_SECONDS);
 
-    expect(later.run).toEqual({ phase: "ended", seed: SEED, opening: false, end: "abandoned", dropped: "blue", distance, ready: { pink: false, blue: false } });
+    expect(later.run).toEqual({ phase: "ended", course: { seed: SEED, opening: false }, end: "abandoned", dropped: "blue", distance, ready: { pink: false, blue: false } });
     expect(playerReturned(later.run, "blue")).toEqual(later.run);
   });
 });

@@ -25,7 +25,7 @@ function playRun(scheduler: FakeScheduler, pink: Player, blue: Player) {
 
 const opening = (conn: FakeConnection) => {
   const run = conn.last("state")!.run;
-  return "opening" in run ? run.opening : undefined;
+  return "course" in run ? run.course.opening : undefined;
 };
 
 describe("the Opening in a Room", () => {

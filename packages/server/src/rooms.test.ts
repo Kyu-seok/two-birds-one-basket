@@ -281,7 +281,7 @@ describe("the Course", () => {
 
     const second = a.last("state")!.run;
     expect(second.phase).toBe("running");
-    expect("seed" in second && "seed" in first && second.seed !== first.seed).toBe(true);
+    expect("course" in second && "course" in first && second.course.seed !== first.course.seed).toBe(true);
     expect(b.last("state")!.run).toEqual(second);
   });
 });
