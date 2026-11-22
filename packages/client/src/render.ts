@@ -14,6 +14,8 @@ const PX_PER_M = 48;
 const BODY_Y = 0.38;
 /** How deep the gap is drawn before it fades out. */
 const GAP_DEPTH = 12;
+/** How high a slack Rope lying on the ground is drawn, so it sits on the surface. */
+const ROPE_REST_Y = 0.04;
 
 const COLORS = {
   skyTop: "#a6d8f4",
@@ -155,12 +157,20 @@ function drawRope(
   const dist = Math.hypot(bx - ax, by - ay);
   // Rough sag: how far the middle drops for a Rope of this length hung across this distance.
   const sag = dist < length ? Math.sqrt(length * length - dist * dist) / 2 : 0;
+  // A quadratic curve's middle sits halfway between its control point and its ends' midpoint,
+  // so the control point drops twice the sag.
+  let controlY = (ay + by) / 2 - sag * 2;
+  // Slack Rope over ground rests on the ground instead of passing through it.
+  const midX = (ax + bx) / 2;
+  if (!TEST_COURSE.gaps.some((g) => midX > g.start && midX < g.end)) {
+    controlY = Math.max(controlY, 2 * ROPE_REST_Y - (ay + by) / 2);
+  }
   ctx.strokeStyle = COLORS.rope;
   ctx.lineWidth = 3;
   ctx.lineCap = "round";
   ctx.beginPath();
   ctx.moveTo(sx(ax), sy(ay));
-  ctx.quadraticCurveTo(sx((ax + bx) / 2), sy((ay + by) / 2 - sag * 2), sx(bx), sy(by));
+  ctx.quadraticCurveTo(sx(midX), sy(controlY), sx(bx), sy(by));
   ctx.stroke();
 }
 
