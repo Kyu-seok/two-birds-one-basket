@@ -40,11 +40,11 @@ async function main() {
         ws.send(JSON.stringify({ type: "reportPing", ms: Math.round(performance.now() - msg.t) }));
         break;
       case "state": {
-        const b = msg.basket;
+        const b = msg.rope;
         status =
           `bot Thrust ${thrust.toFixed(2)}${wave ? " (wave)" : ""} | ` +
           `Thrust L ${msg.thrust.left.toFixed(2)} R ${msg.thrust.right.toFixed(2)} | ` +
-          `Basket x ${b.x.toFixed(1)} y ${b.y.toFixed(1)} tilt ${((b.angle * 180) / Math.PI).toFixed(0)}°`;
+          `Rope x ${b.x.toFixed(1)} y ${b.y.toFixed(1)} tilt ${((b.angle * 180) / Math.PI).toFixed(0)}°`;
         break;
       }
     }

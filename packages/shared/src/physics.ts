@@ -1,5 +1,5 @@
 /** World units are meters; y points up. */
-export interface BasketState {
+export interface RopeState {
   x: number;
   y: number;
   vx: number;
@@ -21,9 +21,9 @@ export const PHYSICS = {
   birdLift: 8,
   /** Angular acceleration (rad/s²) per unit of Thrust difference between the Sides. */
   tiltTorque: 4,
-  /** Pulls the Basket back toward upright, so a steady imbalance settles at a steady tilt. */
+  /** Pulls the Rope back toward upright, so a steady imbalance settles at a steady tilt. */
   uprightStiffness: 3,
-  /** Per-second damping rates; high values make the Basket heavy and floaty. */
+  /** Per-second damping rates; high values make the Rope heavy and floaty. */
   linearDamping: 0.8,
   angularDamping: 2.5,
   maxTilt: Math.PI / 4,
@@ -31,12 +31,12 @@ export const PHYSICS = {
   groundY: 0,
 } as const;
 
-export function initialBasket(): BasketState {
+export function initialRope(): RopeState {
   return { x: 0, y: 0, vx: 0, vy: 0, angle: 0, angularVelocity: 0 };
 }
 
-/** Advances the Basket by one simulation tick. Pure: returns a new state. */
-export function stepBasket(s: BasketState, thrust: Thrusts, dt: number): BasketState {
+/** Advances the Rope by one simulation tick. Pure: returns a new state. */
+export function stepRope(s: RopeState, thrust: Thrusts, dt: number): RopeState {
   const torque =
     PHYSICS.tiltTorque * (thrust.left - thrust.right) -
     PHYSICS.uprightStiffness * s.angle -
@@ -44,7 +44,7 @@ export function stepBasket(s: BasketState, thrust: Thrusts, dt: number): BasketS
   const angularVelocity = s.angularVelocity + torque * dt;
   const angle = clamp(s.angle + angularVelocity * dt, -PHYSICS.maxTilt, PHYSICS.maxTilt);
 
-  // The Birds push along the Basket's tilted "up", so a tilt to the right drifts it right.
+  // The Birds push along the Rope's tilted "up", so a tilt to the right drifts it right.
   const lift = PHYSICS.birdLift * (thrust.left + thrust.right);
   const ax = lift * Math.sin(angle) - PHYSICS.linearDamping * s.vx;
   const ay = lift * Math.cos(angle) - PHYSICS.gravity - PHYSICS.linearDamping * s.vy;

@@ -74,7 +74,7 @@ describe("RoomRegistry", () => {
     expect(a.closed).toBe(true);
   });
 
-  it("simulates the Basket at 30 Hz from both players' Thrust and sends both the same state", () => {
+  it("simulates the Rope at 30 Hz from both players' Thrust and sends both the same state", () => {
     const { rooms, scheduler } = setup();
     const code = rooms.createRoom();
     const [a, b] = [new FakeConnection(), new FakeConnection()];
@@ -88,12 +88,12 @@ describe("RoomRegistry", () => {
     expect(scheduler.timers.map((t) => t.ms)).toEqual([1000 / 30]);
     const stateA = a.last("state")!;
     expect(stateA.tick).toBe(60);
-    expect(stateA.basket.y).toBeGreaterThan(1);
+    expect(stateA.rope.y).toBeGreaterThan(1);
     expect(stateA.thrust).toEqual({ left: 1, right: 1 });
     expect(b.last("state")).toEqual(stateA);
   });
 
-  it("lifts only the Side whose player is giving Thrust, tilting the Basket away from it", () => {
+  it("lifts only the Side whose player is giving Thrust, tilting the Rope away from it", () => {
     const { rooms, scheduler } = setup();
     const code = rooms.createRoom();
     const [a, b] = [new FakeConnection(), new FakeConnection()];
@@ -102,7 +102,7 @@ describe("RoomRegistry", () => {
 
     scheduler.fire(15);
 
-    expect(a.last("state")!.basket.angle).toBeGreaterThan(0);
+    expect(a.last("state")!.rope.angle).toBeGreaterThan(0);
   });
 
   it("answers a ping with a pong and shows both players' reported pings to both", () => {

@@ -1,6 +1,6 @@
-# Server-authoritative simulation, no client prediction for the Basket
+# Server-authoritative simulation, no client prediction for the Birds
 
-The server runs the physics at 30 Hz from both players' Thrust and broadcasts the state; clients only smooth between updates. Each player's own Loudness meter and Bird flapping react locally and instantly. The Basket is not predicted on the client, because its motion depends on the partner's voice, which no client can know in advance. Instead the physics is deliberately heavy and floaty so that a round trip of ~100 ms reads as inertia rather than lag.
+The server runs the physics at 30 Hz from both players' Thrust and broadcasts the state; clients only smooth between updates. Each player's own Loudness meter reacts locally and instantly. The Birds are not predicted on the client, because the Rope ties each Bird's motion to the partner's voice, which no client can know in advance. Instead the game is designed so that a round trip of ~100 ms is forgiven (see Consequences).
 
 ## Considered Options
 

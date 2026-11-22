@@ -1,18 +1,15 @@
-import { SIDES, loudnessToDb, type BasketState, type PerSide, type Side } from "@tbob/shared";
+import { SIDES, loudnessToDb, type RopeState, type PerSide, type Side } from "@tbob/shared";
 
 const PX_PER_M = 40;
-const BASKET_W = 2;
-const BASKET_H = 1;
-const BIRD_OFFSET_X = 1.3;
-const BIRD_OFFSET_Y = 1.6;
+/** Where each Bird sits relative to the Rope's lowest point (its sagging middle). */
+const BIRD_OFFSET_X = 1.6;
+const BIRD_OFFSET_Y = 1.2;
 
 const COLORS = {
   skyTop: "#a6d8f4",
   skyBottom: "#fdf6ec",
   ground: "#b8e0b0",
   grid: "#3d3a4b22",
-  basket: "#d9a066",
-  basketEdge: "#8a5a32",
   rope: "#8a5a32",
   bird: { left: "#f4a6a6", right: "#b8a6f4" } as PerSide<string>,
   ink: "#3d3a4b",
@@ -21,8 +18,8 @@ const COLORS = {
 };
 
 export interface Frame {
-  basket: BasketState;
-  /** Highest point the Basket has reached so far. */
+  rope: RopeState;
+  /** Highest point the Rope has reached so far. */
   height: number;
   /** What each Bird is doing this frame: own Side from the local mic, partner's from the server. */
   thrust: PerSide<number>;
@@ -52,9 +49,9 @@ export function createRenderer(canvas: HTMLCanvasElement) {
     const h = canvas.clientHeight;
     for (const side of SIDES) flapPhase[side] += f.dt * (3 + 18 * f.thrust[side]);
 
-    // Camera follows the Basket.
-    const camX = f.basket.x;
-    const camY = f.basket.y;
+    // Camera follows the Rope.
+    const camX = f.rope.x;
+    const camY = f.rope.y;
     const toScreenX = (x: number) => w / 2 + (x - camX) * PX_PER_M;
     const toScreenY = (y: number) => h * 0.6 - (y - camY) * PX_PER_M;
 
@@ -85,28 +82,23 @@ export function createRenderer(canvas: HTMLCanvasElement) {
       ctx.fillRect(0, groundY, w, h - groundY);
     }
 
-    // Basket and Birds, in the Basket's tilted frame.
+    // The Rope sags between the two Birds, in the Rope's tilted frame.
     ctx.save();
-    ctx.translate(toScreenX(f.basket.x), toScreenY(f.basket.y));
-    ctx.rotate(f.basket.angle);
+    ctx.translate(toScreenX(f.rope.x), toScreenY(f.rope.y));
+    ctx.rotate(f.rope.angle);
     ctx.scale(PX_PER_M, PX_PER_M);
-    ctx.lineWidth = 0.06;
-    ctx.fillStyle = COLORS.basket;
-    ctx.strokeStyle = COLORS.basketEdge;
+    ctx.strokeStyle = COLORS.rope;
+    ctx.lineWidth = 0.08;
+    ctx.lineCap = "round";
     ctx.beginPath();
-    ctx.roundRect(-BASKET_W / 2, -BASKET_H, BASKET_W, BASKET_H, 0.2);
-    ctx.fill();
+    ctx.moveTo(-BIRD_OFFSET_X, -BIRD_OFFSET_Y + 0.25);
+    // Control point below the middle, so the curve's lowest point lands at the Rope's position.
+    ctx.quadraticCurveTo(0, BIRD_OFFSET_Y - 0.25, BIRD_OFFSET_X, -BIRD_OFFSET_Y + 0.25);
     ctx.stroke();
     for (const side of SIDES) {
       const dir = side === "left" ? -1 : 1;
       const bx = dir * BIRD_OFFSET_X;
-      const by = -BASKET_H - BIRD_OFFSET_Y;
-      ctx.strokeStyle = COLORS.rope;
-      ctx.lineWidth = 0.04;
-      ctx.beginPath();
-      ctx.moveTo(dir * (BASKET_W / 2 - 0.1), -BASKET_H);
-      ctx.lineTo(bx, by + 0.3);
-      ctx.stroke();
+      const by = -BIRD_OFFSET_Y;
       drawBird(ctx, bx, by, dir, COLORS.bird[side], flapPhase[side], f.thrust[side], f.present[side]);
     }
     ctx.restore();

@@ -1,4 +1,4 @@
-import type { BasketState } from "./physics.ts";
+import type { RopeState } from "./physics.ts";
 
 export type Side = "left" | "right";
 export const SIDES: readonly Side[] = ["left", "right"];
@@ -23,7 +23,7 @@ export type ServerMessage =
   | {
       type: "state";
       tick: number;
-      basket: BasketState;
+      rope: RopeState;
       thrust: PerSide<number>;
       pings: PerSide<number | null>;
       present: PerSide<boolean>;

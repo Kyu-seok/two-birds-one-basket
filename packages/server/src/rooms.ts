@@ -1,9 +1,9 @@
 import {
   SIDES,
   TICK_MS,
-  initialBasket,
-  stepBasket,
-  type BasketState,
+  initialRope,
+  stepRope,
+  type RopeState,
   type ClientMessage,
   type PerSide,
   type ServerMessage,
@@ -55,7 +55,7 @@ function reject(conn: Connection, msg: ServerMessage): null {
 interface Room {
   code: string;
   players: Partial<Record<Side, Connection>>;
-  basket: BasketState;
+  rope: RopeState;
   thrust: PerSide<number>;
   pings: PerSide<number | null>;
   tick: number;
@@ -63,12 +63,12 @@ interface Room {
 }
 
 function tick(room: Room) {
-  room.basket = stepBasket(room.basket, room.thrust, TICK_MS / 1000);
+  room.rope = stepRope(room.rope, room.thrust, TICK_MS / 1000);
   room.tick++;
   const msg: ServerMessage = {
     type: "state",
     tick: room.tick,
-    basket: room.basket,
+    rope: room.rope,
     thrust: { ...room.thrust },
     pings: { ...room.pings },
     present: { left: !!room.players.left, right: !!room.players.right },
@@ -87,7 +87,7 @@ export function createRoomRegistry(deps: { scheduler: Scheduler; makeCode?: () =
       byCode.set(code, {
         code,
         players: {},
-        basket: initialBasket(),
+        rope: initialRope(),
         thrust: { left: 0, right: 0 },
         pings: { left: null, right: null },
         tick: 0,

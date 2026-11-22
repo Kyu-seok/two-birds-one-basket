@@ -5,7 +5,7 @@ import {
   TICK_MS,
   loudnessToThrust,
   rangeForSensitivity,
-  type BasketState,
+  type RopeState,
   type ServerMessage,
   type Side,
 } from "@tbob/shared";
@@ -39,7 +39,7 @@ function landing() {
     document.getElementById("enter")!.onclick = () => enter(code);
     return;
   }
-  showPanel(`<p>Carry the Basket together with your voices.</p><button id="create">Create a Room</button>`);
+  showPanel(`<p>Walk and jump together, joined by a Rope.</p><button id="create">Create a Room</button>`);
   document.getElementById("create")!.onclick = async () => {
     try {
       const code = await createRoom();
@@ -135,12 +135,12 @@ async function enter(roomCode: string) {
       const myThrust = currentThrust();
 
       if (latest && mySide) {
-        const basket = prev ? interpolate(prev, latest, now) : latest.msg.basket;
+        const rope = prev ? interpolate(prev, latest, now) : latest.msg.rope;
         const s = latest.msg;
-        height = Math.max(height, s.basket.y);
+        height = Math.max(height, s.rope.y);
         draw({
           height,
-          basket,
+          rope,
           thrust: { ...s.thrust, [mySide]: myThrust },
           present: s.present,
           mySide,
@@ -197,10 +197,10 @@ function interpolate(
   a: { msg: StateMsg; at: number },
   b: { msg: StateMsg; at: number },
   now: number,
-): BasketState {
+): RopeState {
   const t = Math.min(1, Math.max(0, (now - b.at) / TICK_MS));
-  const p = a.msg.basket;
-  const q = b.msg.basket;
+  const p = a.msg.rope;
+  const q = b.msg.rope;
   const lerp = (x: number, y: number) => x + (y - x) * t;
   return {
     x: lerp(p.x, q.x),
