@@ -47,6 +47,8 @@ async function main() {
             ? `Bot joined as the ${msg.bird} Bird, holding Thrust ${thrust}.`
             : `Bot joined as the ${msg.bird} Bird. Keys: 0-9 Thrust, f full, w wave, q quit.`,
         );
+        // The bot sends Thrust directly, so it has nothing to calibrate.
+        ws.send(JSON.stringify({ type: "calibrated", value: true }));
         break;
       case "roomFull":
       case "roomNotFound":

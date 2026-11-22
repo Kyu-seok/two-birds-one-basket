@@ -17,13 +17,18 @@ button:hover { filter: brightness(1.05); }
 .link { width: 100%; box-sizing: border-box; font: inherit; padding: 8px; border-radius: 8px; border: 1px solid #ccc; }
 .error { color: #b33; }
 canvas { display: block; width: 100vw; height: 100vh; }
-#sensitivity {
+#controls {
   position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
   display: flex; align-items: center; gap: 10px; padding: 8px 14px;
   background: #fdf6eccc; border-radius: 999px; font-size: 14px;
 }
-#sensitivity[hidden] { display: none; }
-#sensitivity output { min-width: 1.5em; text-align: right; font-weight: 600; }
+#controls[hidden] { display: none; }
+#controls label { display: flex; align-items: center; gap: 10px; }
+#controls button { padding: 4px 12px; font-size: 14px; }
+#controls output { min-width: 1.5em; text-align: right; font-weight: 600; }
+.meter { height: 14px; background: #0001; border-radius: 7px; overflow: hidden; }
+.meter-fill { height: 100%; width: 0; background: var(--accent); transition: width 50ms linear; }
+.countdown { font-weight: 600; }
 #chat {
   position: fixed; left: 16px; bottom: 16px; width: min(300px, calc(100% - 32px));
   display: flex; flex-direction: column; gap: 6px; font-size: 14px;

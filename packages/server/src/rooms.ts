@@ -60,6 +60,8 @@ interface Room {
   world: WorldState;
   thrust: PerBird<number>;
   pings: PerBird<number | null>;
+  /** Which players have calibrated; it lasts for every Run while they stay in the Room. */
+  calibrated: PerBird<boolean>;
   tick: number;
   stopLoop: (() => void) | null;
 }
@@ -83,6 +85,7 @@ function tick(room: Room) {
     thrust: { ...room.thrust },
     pings: { ...room.pings },
     present: { pink: !!room.players.pink, blue: !!room.players.blue },
+    calibrated: { ...room.calibrated },
   });
 }
 
@@ -100,6 +103,7 @@ export function createRoomRegistry(deps: { scheduler: Scheduler; makeCode?: () =
         world: initialWorld(),
         thrust: { pink: 0, blue: 0 },
         pings: { pink: null, blue: null },
+        calibrated: { pink: false, blue: false },
         tick: 0,
         stopLoop: null,
       });
@@ -128,6 +132,9 @@ export function createRoomRegistry(deps: { scheduler: Scheduler; makeCode?: () =
             case "reportPing":
               room.pings[bird] = Number.isFinite(msg.ms) ? Math.max(0, Math.round(msg.ms)) : null;
               break;
+            case "calibrated":
+              room.calibrated[bird] = msg.value === true;
+              break;
             case "chat": {
               const text = chatText(msg.text);
               if (text) broadcast(room, { type: "chat", bird, text });
@@ -140,6 +147,7 @@ export function createRoomRegistry(deps: { scheduler: Scheduler; makeCode?: () =
           delete room.players[bird];
           room.thrust[bird] = 0;
           room.pings[bird] = null;
+          room.calibrated[bird] = false;
           if (!room.players.pink && !room.players.blue) {
             room.stopLoop?.();
             byCode.delete(room.code);

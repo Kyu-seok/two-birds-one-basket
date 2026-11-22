@@ -9,6 +9,8 @@ export type ClientMessage =
   | { type: "ping"; t: number }
   /** The sender's measured round-trip time, so both players can see it. */
   | { type: "reportPing"; ms: number }
+  /** Whether the sender has a Calibration. False while they redo it; only a calibrated player can become Ready. */
+  | { type: "calibrated"; value: boolean }
   /** A Room chat message: the silent way to coordinate (ADR 0001). */
   | { type: "chat"; text: string };
 
@@ -29,6 +31,8 @@ export type ServerMessage =
       thrust: PerBird<number>;
       pings: PerBird<number | null>;
       present: PerBird<boolean>;
+      /** Which players have calibrated. */
+      calibrated: PerBird<boolean>;
     };
 
 export const TICK_HZ = 30;
