@@ -1,11 +1,12 @@
 import {
   BIRDS,
-  TEST_COURSE,
   TICK_HZ,
   TICK_MS,
   browserId,
   chatText,
+  courseForSeed,
   initialWorld,
+  newCourseSeed,
   newRoomRun,
   playerLeft,
   setReady,
@@ -13,6 +14,7 @@ import {
   partnerOf,
   type Bird,
   type ClientMessage,
+  type Course,
   type PerBird,
   type RunState,
   type ServerMessage,
@@ -88,6 +90,18 @@ function broadcast(room: Room, msg: ServerMessage) {
   for (const bird of BIRDS) room.players[bird]?.send(msg);
 }
 
+interface Deps {
+  scheduler: Scheduler;
+  scores: ScoreStore;
+  makeCode?: () => string;
+  /** The wall clock, in ms since the epoch, for when a Run ended. */
+  now?: () => number;
+  /** A new Course seed, for each Run. */
+  makeSeed?: () => number;
+  /** The Course for a seed. Tests swap in a fixed Course. */
+  courseOf?: (seed: number) => Course;
+}
+
 /** The Browser IDs of the two players in the Room, or null unless both are here and sent one. */
 export function pairOf(room: { browsers: PerBird<string | null> }): Pair | null {
   const { pink, blue } = room.browsers;
@@ -107,9 +121,11 @@ function sendScores(room: Room, scores: ScoreStore) {
   });
 }
 
-function tick(room: Room, scores: ScoreStore, now: () => number) {
+function tick(room: Room, deps: Deps, scores: ScoreStore, now: () => number) {
   const before = room.run.phase;
-  const { run, world } = stepRun(room.run, room.world, room.thrust, TICK_MS / 1000, TEST_COURSE);
+  const seed = (deps.makeSeed ?? newCourseSeed)();
+  const dt = TICK_MS / 1000;
+  const { run, world } = stepRun(room.run, room.world, room.thrust, dt, seed, deps.courseOf ?? courseForSeed);
   room.run = run;
   room.world = world;
   room.tick++;
@@ -139,13 +155,7 @@ function tick(room: Room, scores: ScoreStore, now: () => number) {
   });
 }
 
-export function createRoomRegistry(deps: {
-  scheduler: Scheduler;
-  scores: ScoreStore;
-  makeCode?: () => string;
-  /** The wall clock, in ms since the epoch, for when a Run ended. */
-  now?: () => number;
-}): RoomRegistry {
+export function createRoomRegistry(deps: Deps): RoomRegistry {
   const { scores } = deps;
   const makeCode = deps.makeCode ?? randomCode;
   const now = deps.now ?? Date.now;
@@ -180,7 +190,7 @@ export function createRoomRegistry(deps: {
       room.browsers[bird] = browserId(browser);
       conn.send({ type: "joined", bird, roomCode });
       sendScores(room, scores);
-      room.stopLoop ??= deps.scheduler.every(TICK_MS, () => tick(room, scores, now));
+      room.stopLoop ??= deps.scheduler.every(TICK_MS, () => tick(room, deps, scores, now));
 
       return {
         receive(msg) {

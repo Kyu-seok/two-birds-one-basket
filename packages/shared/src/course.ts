@@ -1,0 +1,220 @@
+/**
+ * The Course and the Pieces it is built from. The same Piece data drives the server's
+ * collisions (`physics.ts`) and the client's drawing, and a Run's Course is rebuilt on each
+ * side from one seed, so no geometry is ever sent.
+ *
+ * World units are meters; x runs along the Course, y points up, and ground level is y = 0.
+ */
+
+export type Tier = "easy" | "medium" | "hard";
+export const TIERS: readonly Tier[] = ["easy", "medium", "hard"];
+
+/** A stretch of a Piece, `from`..`to` measured from the Piece's start, at `height`. */
+export interface Span {
+  from: number;
+  to: number;
+  height: number;
+}
+
+/**
+ * One hand-made building block of the Course. Every Piece starts and ends on ground at height 0,
+ * so any Piece can follow any other.
+ */
+export interface Piece {
+  name: string;
+  tier: Tier;
+  length: number;
+  /**
+   * Solid ground, its surface at `height` (never below 0) and solid all the way down. Where no
+   * span covers, there is a bottomless gap. Neighbouring spans of different heights make a step,
+   * whose side is a wall.
+   */
+  ground: readonly Span[];
+  /** Low ceilings: solid from `height` all the way up. A Bird that jumps into one bonks its head. */
+  ceilings: readonly Span[];
+}
+
+/** A Piece placed on the Course, starting at `x`. */
+export interface PlacedPiece {
+  x: number;
+  piece: Piece;
+}
+
+export interface Course {
+  /** The Pieces overlapping `from`..`to`, in order along the Course. An endless Course builds them as needed. */
+  piecesBetween(from: number, to: number): readonly PlacedPiece[];
+}
+
+/** A one-off stretch of Course from ground and ceiling spans given in Course coordinates, for tests and tools. */
+export function courseOf(ground: readonly Span[], ceilings: readonly Span[] = []): Course {
+  const x = Math.min(...ground.map((s) => s.from), ...ceilings.map((s) => s.from));
+  const end = Math.max(...ground.map((s) => s.to), ...ceilings.map((s) => s.to));
+  const shift = (s: Span) => ({ ...s, from: s.from - x, to: s.to - x });
+  return fixedCourse([{ x, piece: { name: "test", tier: "easy", length: end - x, ground: ground.map(shift), ceilings: ceilings.map(shift) } }]);
+}
+
+/** A Course of a fixed list of placed Pieces. */
+export function fixedCourse(placed: readonly PlacedPiece[]): Course {
+  return { piecesBetween: (from, to) => placed.filter((p) => p.x <= to && p.x + p.piece.length >= from) };
+}
+
+const flat = (name: string, length: number): Piece => ({
+  name,
+  tier: "easy",
+  length,
+  ground: [{ from: 0, to: length, height: 0 }],
+  ceilings: [],
+});
+
+/** Flat ground the Birds start on, reaching well behind the start. #6 puts the Opening after it. */
+export const START_PIECE: Piece = flat("start", 40);
+const START_X = -30;
+
+/**
+ * Every Piece the Course can be built from. Sizes forgive a server round trip (ADR 0002):
+ * long flat run-ups and landings, steps a soft jump clears, and gaps a soft jump crosses.
+ *
+ * A soft jump (just past the jump threshold) rises about 0.6 m and carries about 1.5 m forward;
+ * a full-Thrust jump rises about 2 m. A Bird is `PHYSICS.birdHeight` (0.7 m) tall.
+ */
+export const PIECES: readonly Piece[] = [
+  flat("flat walk", 8),
+  {
+    name: "small gap",
+    tier: "easy",
+    length: 8,
+    ground: [
+      { from: 0, to: 4, height: 0 },
+      { from: 5, to: 8, height: 0 },
+    ],
+    ceilings: [],
+  },
+  {
+    name: "gap",
+    tier: "easy",
+    length: 9,
+    ground: [
+      { from: 0, to: 4, height: 0 },
+      { from: 5.4, to: 9, height: 0 },
+    ],
+    ceilings: [],
+  },
+  {
+    name: "steps",
+    tier: "easy",
+    length: 13,
+    ground: [
+      { from: 0, to: 3, height: 0 },
+      { from: 3, to: 5.5, height: 0.4 },
+      { from: 5.5, to: 8, height: 0.8 },
+      { from: 8, to: 10, height: 0.4 },
+      { from: 10, to: 13, height: 0 },
+    ],
+    ceilings: [],
+  },
+  {
+    name: "step",
+    tier: "easy",
+    length: 10,
+    ground: [
+      { from: 0, to: 3, height: 0 },
+      { from: 3, to: 7, height: 0.4 },
+      { from: 7, to: 10, height: 0 },
+    ],
+    ceilings: [],
+  },
+  {
+    // A soft hop crosses the gap under the ceiling; a loud jump bonks and drops into it (ADR 0008).
+    name: "low ceiling",
+    tier: "easy",
+    length: 12,
+    ground: [
+      { from: 0, to: 5.5, height: 0 },
+      { from: 6.5, to: 12, height: 0 },
+    ],
+    ceilings: [{ from: 3, to: 9, height: 1.8 }],
+  },
+];
+
+/**
+ * How likely each Tier is for the next Piece at `distance` meters along the Course. All Easy at
+ * the start; Medium creeps in after 30 m and Hard after 120 m, until Easy is rare.
+ */
+export function tierWeights(distance: number): Record<Tier, number> {
+  const ramp = (start: number, span: number) => Math.min(1, Math.max(0, (distance - start) / span));
+  const raw = { easy: 1 - 0.85 * ramp(30, 800), medium: 1.2 * ramp(30, 200), hard: 1.5 * ramp(120, 600) };
+  const total = raw.easy + raw.medium + raw.hard;
+  return { easy: raw.easy / total, medium: raw.medium / total, hard: raw.hard / total };
+}
+
+/** A small, fast, seeded random number generator (mulberry32): the same seed gives the same numbers everywhere. */
+function seededRandom(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Picks the next Piece at `distance`: a Tier by weight, then a Piece of it (or of the nearest easier Tier that has one). */
+function nextPiece(random: () => number, distance: number, catalog: readonly Piece[]): Piece {
+  const weights = tierWeights(distance);
+  let roll = random();
+  let tierIndex = TIERS.length - 1;
+  for (let i = 0; i < TIERS.length; i++) {
+    roll -= weights[TIERS[i]!];
+    if (roll < 0) {
+      tierIndex = i;
+      break;
+    }
+  }
+  for (let i = tierIndex; i >= 0; i--) {
+    const choices = catalog.filter((p) => p.tier === TIERS[i]);
+    if (choices.length) return choices[Math.floor(random() * choices.length)]!;
+  }
+  return catalog[Math.floor(random() * catalog.length)]!;
+}
+
+/**
+ * The endless Course of one Run: the start, then Pieces in random order from `catalog`, the
+ * same for the same seed. It extends as far as anything asks.
+ */
+export function randomCourse(seed: number, catalog: readonly Piece[] = PIECES): Course {
+  const random = seededRandom(seed);
+  const placed: PlacedPiece[] = [{ x: START_X, piece: START_PIECE }];
+  const end = () => placed.at(-1)!.x + placed.at(-1)!.piece.length;
+  return {
+    piecesBetween(from, to) {
+      while (end() < to) {
+        const x = end();
+        placed.push({ x, piece: nextPiece(random, x, catalog) });
+      }
+      return placed.filter((p) => p.x <= to && p.x + p.piece.length >= from);
+    },
+  };
+}
+
+const memo = new Map<number, Course>();
+
+/**
+ * The Course for a Run's seed, kept for reuse: the server steps it 30 times a second and the
+ * client draws it every frame.
+ */
+export function courseForSeed(seed: number): Course {
+  let course = memo.get(seed);
+  if (!course) {
+    course = randomCourse(seed);
+    memo.set(seed, course);
+    // Only the last few Runs' Courses are kept.
+    if (memo.size > 8) memo.delete(memo.keys().next().value!);
+  }
+  return course;
+}
+
+/** A new seed for a Run's Course. */
+export function newCourseSeed(): number {
+  return Math.floor(Math.random() * 2 ** 32);
+}
