@@ -58,6 +58,9 @@ async function main() {
       case "fallen":
         console.log("\nFallen: the test Course starts again.");
         break;
+      case "chat":
+        console.log(`\n[chat] ${msg.bird}: ${msg.text}`);
+        break;
       case "state": {
         const { pink, blue } = msg.world.birds;
         const at = (b: BirdState) => `${b.x.toFixed(1)},${b.y.toFixed(1)}`;

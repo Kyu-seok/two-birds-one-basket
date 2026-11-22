@@ -157,3 +157,40 @@ describe("RoomRegistry", () => {
     expect(late.messages).toEqual([{ type: "roomNotFound" }]);
   });
 });
+
+describe("Room chat", () => {
+  it("relays a chat message to both players, tagged with the sender's Bird", () => {
+    const { rooms } = setup();
+    const code = rooms.createRoom();
+    const [a, b] = [new FakeConnection(), new FakeConnection()];
+    rooms.connect(code, a);
+    const blue = rooms.connect(code, b)!;
+
+    blue.receive({ type: "chat", text: "jump on three" });
+
+    expect(a.last("chat")).toEqual({ type: "chat", bird: "blue", text: "jump on three" });
+    expect(b.last("chat")).toEqual({ type: "chat", bird: "blue", text: "jump on three" });
+  });
+
+  it("ignores empty chat messages and cuts long ones to the limit", () => {
+    const { rooms } = setup();
+    const code = rooms.createRoom();
+    const [a, b] = [new FakeConnection(), new FakeConnection()];
+    const pink = rooms.connect(code, a)!;
+    rooms.connect(code, b);
+
+    pink.receive({ type: "chat", text: "   " });
+    expect(b.last("chat")).toBeUndefined();
+
+    pink.receive({ type: "chat", text: "x".repeat(1000) });
+    expect(b.last("chat")).toEqual({ type: "chat", bird: "pink", text: "x".repeat(200) });
+  });
+
+  it("works while a player waits alone for a partner", () => {
+    const { rooms } = setup();
+    const a = new FakeConnection();
+    rooms.connect(rooms.createRoom(), a)!.receive({ type: "chat", text: "hi?" });
+
+    expect(a.last("chat")).toEqual({ type: "chat", bird: "pink", text: "hi?" });
+  });
+});

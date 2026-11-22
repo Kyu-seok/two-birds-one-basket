@@ -17,6 +17,9 @@ const GAP_DEPTH = 12;
 /** How high a slack Rope lying on the ground is drawn, so it sits on the surface. */
 const ROPE_REST_Y = 0.04;
 
+/** Each Bird's colour, shared with anything else that marks a Bird (the chat). */
+export const BIRD_COLORS: PerBird<string> = { pink: "#f4a6a6", blue: "#8ec5f2" };
+
 const COLORS = {
   skyTop: "#a6d8f4",
   skyBottom: "#fdf6ec",
@@ -25,7 +28,7 @@ const COLORS = {
   gap: "#3d3a4bcc",
   grid: "#3d3a4b22",
   rope: "#8a5a32",
-  bird: { pink: "#f4a6a6", blue: "#8ec5f2" } as PerBird<string>,
+  bird: BIRD_COLORS,
   ink: "#3d3a4b",
   meterBg: "#ffffff99",
 };
