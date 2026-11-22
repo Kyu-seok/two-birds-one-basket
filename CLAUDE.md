@@ -1,4 +1,4 @@
-# Two Birds, One Basket
+# Two Birds, One Rope
 
 2-player co-op voice game. See `PLAN.md` for the full design.
 
@@ -6,7 +6,7 @@
 
 ### Issue tracker
 
-Issues are tracked in GitHub Issues on `Kyu-seok/two-birds-one-basket` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues are tracked in GitHub Issues on `Kyu-seok/two-birds-one-rope` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
