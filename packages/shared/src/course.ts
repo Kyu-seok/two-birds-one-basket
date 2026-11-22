@@ -14,6 +14,41 @@ export interface Span {
   from: number;
   to: number;
   height: number;
+  /** A moving platform: slides back and forth on a timed pattern (ground only). */
+  move?: Motion;
+  /** A crumbling platform: gives way a while after a Bird first stands on it, then comes back (ground only). */
+  crumble?: Crumble;
+}
+
+/**
+ * Timed hazards follow the Run's clock, so they are the same for both players. A moving span is
+ * offset by `dx * (1 - cos(2π (time / period + phase))) / 2`: it starts where the Piece puts it,
+ * slides `dx` meters along the Course and back once every `period` seconds.
+ */
+export interface Motion {
+  dx: number;
+  period: number;
+  phase?: number;
+}
+
+/** A crumbling span holds for `holdSeconds` after a Bird first stands on it, is gone for `goneSeconds`, then is back as new. */
+export interface Crumble {
+  holdSeconds: number;
+  goneSeconds: number;
+}
+
+/**
+ * A gust over `from`..`to` that blows in bursts: for the first `on` seconds of every `period`
+ * (shifted by `phase` periods), it pushes any Bird there along the Course at `push` m/s
+ * (negative blows it back). It only ever pushes; it never hurts.
+ */
+export interface Gust {
+  from: number;
+  to: number;
+  push: number;
+  period: number;
+  on: number;
+  phase?: number;
 }
 
 /**
@@ -32,6 +67,8 @@ export interface Piece {
   ground: readonly Span[];
   /** Low ceilings: solid from `height` all the way up. A Bird that jumps into one bonks its head. */
   ceilings: readonly Span[];
+  /** Gusts blowing in bursts over parts of the Piece. */
+  gusts?: readonly Gust[];
 }
 
 /** A Piece placed on the Course, starting at `x`. */
