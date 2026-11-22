@@ -17,7 +17,8 @@ import { KEYS_MODE, keyboardThrust } from "./keys.ts";
 import { openMic, type Mic } from "./mic.ts";
 import { createRoom, joinRoom, type RoomSocket } from "./net.ts";
 import { createRenderer } from "./render.ts";
-import { loadBrowserId, rememberCalibration, rememberTeam, savedCalibration } from "./identity.ts";
+import { loadBrowserId, rememberTeam } from "./identity.ts";
+import { rememberCalibration, savedCalibration } from "./saved-calibration.ts";
 import { setupRunScreen, type Scores } from "./run.ts";
 import { startVoice, type VoiceLink } from "./voice.ts";
 
