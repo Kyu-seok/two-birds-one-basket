@@ -1,6 +1,7 @@
 import type { Bird, PerBird } from "./bird.ts";
 import type { WorldState } from "./physics.ts";
 import type { RunState } from "./run.ts";
+import type { VoiceSignal } from "./voice.ts";
 
 /** Client → server. */
 export type ClientMessage =
@@ -15,7 +16,9 @@ export type ClientMessage =
   /** A Room chat message: the silent way to coordinate (ADR 0001). */
   | { type: "chat"; text: string }
   /** Press (or take back) Ready before a Run, or Again on the Run End screen. Only counts once calibrated. */
-  | { type: "ready"; value: boolean };
+  | { type: "ready"; value: boolean }
+  /** Voice chat setup for the partner's browser; the server passes it on. */
+  | { type: "signal"; signal: VoiceSignal };
 
 /** Server → client. */
 export type ServerMessage =
@@ -25,6 +28,8 @@ export type ServerMessage =
   | { type: "pong"; t: number }
   /** A Room chat message from `bird`, sent to both players. */
   | { type: "chat"; bird: Bird; text: string }
+  /** Voice chat setup from the partner's browser. */
+  | { type: "signal"; signal: VoiceSignal }
   | {
       type: "state";
       tick: number;

@@ -57,3 +57,10 @@ canvas { display: block; width: 100vw; height: 100vh; }
 #run .partner { font-size: 14px; opacity: 0.8; }
 #run button.pressed { background: var(--accent-2); }
 #run button:disabled { opacity: 0.5; cursor: default; }
+#voice-status {
+  position: fixed; right: 16px; bottom: 16px; margin: 0; padding: 6px 12px;
+  background: #fdf6eccc; border-radius: 999px; font-size: 14px;
+}
+#voice-status[hidden] { display: none; }
+#voice-status[data-status="unavailable"] { color: #b33; }
+.hint { font-size: 14px; opacity: 0.8; }

@@ -8,11 +8,13 @@ import {
   playerLeft,
   setReady,
   stepRun,
+  partnerOf,
   type Bird,
   type ClientMessage,
   type PerBird,
   type RunState,
   type ServerMessage,
+  voiceSignal,
   type WorldState,
 } from "@tbob/shared";
 
@@ -142,6 +144,12 @@ export function createRoomRegistry(deps: { scheduler: Scheduler; makeCode?: () =
             case "ready":
               room.run = setReady(room.run, bird, msg.value === true && room.calibrated[bird]);
               break;
+            case "signal": {
+              const signal = voiceSignal(msg.signal);
+              const partner = room.players[partnerOf(bird)];
+              if (signal && partner) partner.send({ type: "signal", signal });
+              break;
+            }
             case "chat": {
               const text = chatText(msg.text);
               if (text) broadcast(room, { type: "chat", bird, text });
