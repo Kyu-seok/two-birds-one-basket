@@ -72,21 +72,28 @@ function reject(conn: Connection, msg: ServerMessage): null {
   return null;
 }
 
+/**
+ * Who a Bird is kept for. It outlasts a disconnect: the Bird (and its Calibration) stays reserved
+ * for that browser until `reservedUntil`.
+ */
+interface Seat {
+  /** The player's Browser ID, or null if they sent none (or nobody has the Bird). */
+  browser: string | null;
+  /** The tick a dropped player's reserved Bird is freed on; null while they are here (or have no Browser ID). */
+  reservedUntil: number | null;
+  /** Whether the player has calibrated; it lasts for every Run while they stay in the Room. */
+  calibrated: boolean;
+}
+
+const emptySeat = (): Seat => ({ browser: null, reservedUntil: null, calibrated: false });
+
 interface Room {
   code: string;
   players: Partial<PerBird<Connection>>;
-  /**
-   * Each player's Browser ID, or null if they sent none. It outlasts a disconnect: the Bird (and its
-   * Calibration) stays reserved for that browser until `reservedUntil`.
-   */
-  browsers: PerBird<string | null>;
-  /** The tick a dropped player's reserved Bird is freed on; null while they are here (or have no Browser ID). */
-  reservedUntil: PerBird<number | null>;
+  seats: PerBird<Seat>;
   world: WorldState;
   thrust: PerBird<number>;
   pings: PerBird<number | null>;
-  /** Which players have calibrated; it lasts for every Run while they stay in the Room. */
-  calibrated: PerBird<boolean>;
   run: RunState;
   /** A player asked for the next Run to start with the Opening again. */
   replayOpening: boolean;
@@ -113,8 +120,8 @@ interface Deps {
 }
 
 /** The Browser IDs of the two players in the Room, or null unless both are here and sent one. */
-export function pairOf(room: Pick<Room, "browsers" | "players">): Pair | null {
-  const { pink, blue } = room.browsers;
+export function pairOf(room: Pick<Room, "seats" | "players">): Pair | null {
+  const [pink, blue] = [room.seats.pink.browser, room.seats.blue.browser];
   if (!room.players.pink || !room.players.blue) return null;
   return pink && blue && pink !== blue ? [pink, blue] : null;
 }
@@ -144,9 +151,7 @@ function playsOpening(room: Room, scores: ScoreStore): boolean {
 
 /** Lets anyone take a Bird its player has left, forgetting their Calibration. */
 function freeBird(room: Room, bird: Bird) {
-  room.browsers[bird] = null;
-  room.reservedUntil[bird] = null;
-  room.calibrated[bird] = false;
+  room.seats[bird] = emptySeat();
 }
 
 /**
@@ -154,15 +159,15 @@ function freeBird(room: Room, bird: Bird) {
  * Browser ID nobody can come back to it, so it is free at once and a Run under way is Abandoned.
  */
 function playerGone(room: Room, bird: Bird, scores: ScoreStore, now: () => number) {
-  const canReturn = room.browsers[bird] !== null;
-  if (canReturn) room.reservedUntil[bird] = room.tick + RECONNECT_SECONDS * TICK_HZ;
+  const canReturn = room.seats[bird].browser !== null;
+  if (canReturn) room.seats[bird].reservedUntil = room.tick + RECONNECT_SECONDS * TICK_HZ;
   else freeBird(room, bird);
   setRun(room, scores, now, playerLeft(room.run, bird, canReturn));
 }
 
 /** Nobody is in the Room and no Bird is kept for anyone coming back. */
 function deserted(room: Room): boolean {
-  return BIRDS.every((b) => !room.players[b] && room.browsers[b] === null);
+  return BIRDS.every((b) => !room.players[b] && room.seats[b].browser === null);
 }
 
 /** Records the Run that just ended in the Team History (and maybe the Top 10). */
@@ -194,7 +199,7 @@ function tick(room: Room, deps: Deps, scores: ScoreStore, now: () => number) {
   // A replay asked for is used up by the Run it starts.
   if (before !== "countdown" && run.phase === "countdown") room.replayOpening = false;
   for (const bird of BIRDS) {
-    const until = room.reservedUntil[bird];
+    const until = room.seats[bird].reservedUntil;
     if (until !== null && room.tick >= until) freeBird(room, bird);
   }
   if (before === "countdown" && run.phase === "running") room.runStart = { ticks: 0, pair: pairOf(room) };
@@ -206,7 +211,7 @@ function tick(room: Room, deps: Deps, scores: ScoreStore, now: () => number) {
     thrust: { ...room.thrust },
     pings: { ...room.pings },
     present: { pink: !!room.players.pink, blue: !!room.players.blue },
-    calibrated: { ...room.calibrated },
+    calibrated: { pink: room.seats.pink.calibrated, blue: room.seats.blue.calibrated },
     run: room.run,
     replayOpening: room.replayOpening,
   });
@@ -231,12 +236,10 @@ export function createRoomRegistry(deps: Deps): RoomRegistry {
       byCode.set(code, {
         code,
         players: {},
-        browsers: { pink: null, blue: null },
-        reservedUntil: { pink: null, blue: null },
+        seats: { pink: emptySeat(), blue: emptySeat() },
         world: initialWorld(),
         thrust: { pink: 0, blue: 0 },
         pings: { pink: null, blue: null },
-        calibrated: { pink: false, blue: false },
         run: newRoomRun(),
         replayOpening: false,
         tick: 0,
@@ -251,13 +254,13 @@ export function createRoomRegistry(deps: Deps): RoomRegistry {
       const id = browserId(browser);
       // A returning browser gets its own Bird back; anyone else gets a Bird nobody has reserved.
       const bird =
-        BIRDS.find((b) => !room.players[b] && id !== null && room.browsers[b] === id) ??
-        BIRDS.find((b) => !room.players[b] && room.browsers[b] === null);
+        BIRDS.find((b) => !room.players[b] && id !== null && room.seats[b].browser === id) ??
+        BIRDS.find((b) => !room.players[b] && room.seats[b].browser === null);
       if (!bird) return reject(conn, { type: "roomFull" });
 
       room.players[bird] = conn;
-      room.browsers[bird] = id;
-      room.reservedUntil[bird] = null;
+      room.seats[bird].browser = id;
+      room.seats[bird].reservedUntil = null;
       room.run = playerReturned(room.run, bird);
       // Back to a Run their partner has left too: it waits on for the partner.
       const partner = partnerOf(bird);
@@ -283,12 +286,12 @@ export function createRoomRegistry(deps: Deps): RoomRegistry {
               room.pings[bird] = Number.isFinite(msg.ms) ? Math.max(0, Math.round(msg.ms)) : null;
               break;
             case "calibrated":
-              room.calibrated[bird] = msg.value === true;
+              room.seats[bird].calibrated = msg.value === true;
               // Recalibrating takes back Ready.
-              if (!room.calibrated[bird]) room.run = setReady(room.run, bird, false);
+              if (!room.seats[bird].calibrated) room.run = setReady(room.run, bird, false);
               break;
             case "ready":
-              room.run = setReady(room.run, bird, msg.value === true && room.calibrated[bird]);
+              room.run = setReady(room.run, bird, msg.value === true && room.seats[bird].calibrated);
               break;
             case "replayOpening":
               room.replayOpening = msg.value === true;
