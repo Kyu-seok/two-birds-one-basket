@@ -8,7 +8,9 @@ export type ClientMessage =
   /** Round-trip probe; the server answers with a pong carrying the same `t`. */
   | { type: "ping"; t: number }
   /** The sender's measured round-trip time, so both players can see it. */
-  | { type: "reportPing"; ms: number };
+  | { type: "reportPing"; ms: number }
+  /** A Room chat message: the silent way to coordinate (ADR 0001). */
+  | { type: "chat"; text: string };
 
 /** Server → client. */
 export type ServerMessage =
@@ -16,6 +18,8 @@ export type ServerMessage =
   | { type: "roomFull" }
   | { type: "roomNotFound" }
   | { type: "pong"; t: number }
+  /** A Room chat message from `bird`, sent to both players. */
+  | { type: "chat"; bird: Bird; text: string }
   /** Both Birds fell; the test Course starts again. */
   | { type: "fallen" }
   | {
