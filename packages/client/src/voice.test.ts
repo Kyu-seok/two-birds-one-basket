@@ -12,7 +12,7 @@ class FakePeer implements VoicePeer {
   candidates: RTCIceCandidateInit[] = [];
   onicecandidate: ((e: { candidate: RTCIceCandidate | null }) => void) | null = null;
   ontrack: ((e: { streams: readonly MediaStream[] }) => void) | null = null;
-  onconnectionstatechange: (() => void) | null = null;
+  onconnectionstatechange: ((e: Event) => void) | null = null;
 
   addTrack(track: MediaStreamTrack) {
     this.tracks.push(track);
@@ -43,10 +43,10 @@ class FakePeer implements VoicePeer {
   /** Test helpers: what the browser would do. */
   become(state: RTCPeerConnectionState) {
     this.connectionState = state;
-    this.onconnectionstatechange?.();
+    this.onconnectionstatechange?.(new Event("connectionstatechange"));
   }
   gatherCandidate(candidate: string) {
-    this.onicecandidate?.({ candidate: { toJSON: () => ({ candidate, sdpMid: "0", sdpMLineIndex: 0 }) } as RTCIceCandidate });
+    this.onicecandidate?.({ candidate: { toJSON: () => ({ candidate, sdpMid: "0", sdpMLineIndex: 0 }) } as RTCIceCandidate } as RTCPeerConnectionIceEvent);
   }
 }
 
@@ -113,7 +113,7 @@ describe("Voice link", () => {
     expect(blue.sent).toEqual([{ description: { type: "answer", sdp: "answer-sdp" } }]);
 
     const partnerVoice = {} as MediaStream;
-    peer.ontrack?.({ streams: [partnerVoice] });
+    peer.ontrack?.({ streams: [partnerVoice] } as unknown as RTCTrackEvent);
     peer.become("connected");
     expect(blue.remoteStreams).toEqual([partnerVoice]);
     expect(blue.status()).toBe("connected");

@@ -10,9 +10,9 @@ export type VoiceStatus = "waiting" | "connecting" | "connected" | "unavailable"
 /** The part of RTCPeerConnection the voice link uses, so tests can stand in for the browser. */
 export interface VoicePeer {
   readonly connectionState: RTCPeerConnectionState;
-  onicecandidate: ((e: { candidate: RTCIceCandidate | null }) => void) | null;
-  ontrack: ((e: { streams: readonly MediaStream[] }) => void) | null;
-  onconnectionstatechange: (() => void) | null;
+  onicecandidate: ((e: RTCPeerConnectionIceEvent) => void) | null;
+  ontrack: ((e: RTCTrackEvent) => void) | null;
+  onconnectionstatechange: ((e: Event) => void) | null;
   addTrack(track: MediaStreamTrack, stream: MediaStream): unknown;
   addTransceiver(kind: "audio", init: { direction: "recvonly" }): unknown;
   createOffer(): Promise<RTCSessionDescriptionInit>;
@@ -178,4 +178,48 @@ export function createVoiceLink(deps: VoiceLinkDeps): VoiceLink {
       hangUp();
     },
   };
+}
+
+/** Public STUN servers: enough for most home connections; there is no TURN relay. */
+const ICE_SERVERS: RTCIceServer[] = [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }];
+
+const STATUS_TEXT: Record<VoiceStatus, string> = {
+  waiting: "Voice: waiting for your partner",
+  connecting: "Voice: connecting…",
+  connected: "Voice on",
+  unavailable: "Voice unavailable: use the chat",
+};
+
+/** Voice chat in the browser: real WebRTC, the partner's voice on an audio element, and the status line. */
+export function startVoice(bird: Bird, stream: MediaStream | null, send: (signal: VoiceSignal) => void): VoiceLink {
+  const statusLine = document.getElementById("voice-status")!;
+  // A media element (not Web Audio) so the browser's echo cancellation can hear what it plays.
+  const audio = document.createElement("audio");
+  audio.autoplay = true;
+  document.body.append(audio);
+
+  return createVoiceLink({
+    bird,
+    stream,
+    send,
+    makePeer: () => new RTCPeerConnection({ iceServers: ICE_SERVERS }),
+    onRemoteStream(remote) {
+      audio.srcObject = remote;
+      audio.play().catch(() => {
+        // Autoplay was blocked; the next click or key starts it.
+        const resume = () => void audio.play().catch(() => {});
+        addEventListener("pointerdown", resume, { once: true });
+        addEventListener("keydown", resume, { once: true });
+      });
+    },
+    onStatus(status) {
+      statusLine.textContent = STATUS_TEXT[status];
+      statusLine.dataset.status = status;
+      statusLine.hidden = false;
+    },
+    after(ms, fn) {
+      const id = setTimeout(fn, ms);
+      return () => clearTimeout(id);
+    },
+  });
 }
