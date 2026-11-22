@@ -2,16 +2,21 @@ import type { Bird, PerBird } from "./bird.ts";
 import { START_PIECE, courseForSeed, fixedCourse, type Course } from "./course.ts";
 import { initialWorld, stepWorld, type Thrusts, type WorldState } from "./physics.ts";
 
-/** How a Run finished. #12 adds "abandoned". */
-export type RunEndReason = "fallen";
+/** How a Run finished: Fallen, or Abandoned when a player dropped and didn't come back in time. */
+export type RunEndReason = "fallen" | "abandoned";
 
 /**
  * Where a Room is in its cycle of Runs:
  *
  *   waiting ──both Ready──▶ countdown ──3 s──▶ running ──Fallen──▶ ended ──both Again──▶ countdown …
+ *                                              │    ▲
+ *                                   a player drops  they return within 30 s
+ *                                              ▼    │
+ *                                              paused ──30 s──▶ ended (Abandoned)
  *
  * `waiting` is before a Room's first Run; `ended` is the Run End screen, where "Again" is the
- * same Ready press. The world only moves while `running`.
+ * same Ready press. The world only moves while `running`; `paused` freezes it with the Run's
+ * Distance kept.
  *
  * Each Run has its own random Course, built from `seed` and starting with the Opening if
  * `opening` (see `runCourse`), picked when its countdown starts. Both clients rebuild the same
@@ -21,6 +26,7 @@ export type RunState =
   | { phase: "waiting"; ready: PerBird<boolean> }
   | ({ phase: "countdown"; secondsLeft: number } & RunCourse)
   | ({ phase: "running"; distance: number } & RunCourse)
+  | ({ phase: "paused"; distance: number; dropped: Bird; secondsLeft: number } & RunCourse)
   | ({ phase: "ended"; end: RunEndReason; distance: number; ready: PerBird<boolean> } & RunCourse);
 
 /** What a Run's Course is built from: its seed, and whether it starts with the Opening. */
@@ -30,6 +36,8 @@ export interface RunCourse {
 }
 
 export const COUNTDOWN_SECONDS = 3;
+/** How long a dropped player has to reopen the link before the Run is Abandoned. */
+export const RECONNECT_SECONDS = 30;
 
 const NOBODY_READY: PerBird<boolean> = { pink: false, blue: false };
 
@@ -49,10 +57,22 @@ export function setReady(run: RunState, bird: Bird, value: boolean): RunState {
   return { ...run, ready: { ...run.ready, [bird]: value } };
 }
 
-/** A player left: they are no longer Ready, and a countdown they were part of stops. A running Run carries on (#12 ends it as Abandoned). */
+/**
+ * A player left: they are no longer Ready, a countdown they were part of stops, and a running
+ * Run pauses until they come back (or RECONNECT_SECONDS pass).
+ */
 export function playerLeft(run: RunState, bird: Bird): RunState {
   if (run.phase === "countdown") return newRoomRun();
+  if (run.phase === "running") {
+    return { phase: "paused", seed: run.seed, opening: run.opening, distance: run.distance, dropped: bird, secondsLeft: RECONNECT_SECONDS };
+  }
   return setReady(run, bird, false);
+}
+
+/** A player came back to their Bird: a Run paused for them resumes where it stopped. */
+export function playerReturned(run: RunState, bird: Bird): RunState {
+  if (run.phase === "paused" && run.dropped === bird) return { phase: "running", seed: run.seed, opening: run.opening, distance: run.distance };
+  return run;
 }
 
 /** How far the Bird behind is along the Course, in meters. */
@@ -111,6 +131,14 @@ export function stepRun(
         return { run: { phase: "ended", seed, opening, end: "fallen", distance, ready: { ...NOBODY_READY } }, world: next };
       }
       return { run: { phase: "running", seed, opening, distance }, world: next };
+    }
+    case "paused": {
+      const { seed, opening, distance } = run;
+      const secondsLeft = run.secondsLeft - dt;
+      if (secondsLeft <= 1e-6) {
+        return { run: { phase: "ended", seed, opening, end: "abandoned", distance, ready: { ...NOBODY_READY } }, world };
+      }
+      return { run: { ...run, secondsLeft }, world };
     }
   }
 }
