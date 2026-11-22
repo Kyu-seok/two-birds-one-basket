@@ -56,14 +56,26 @@ export function newRoomRun(): RunState {
   return { phase: "waiting", ready: { ...NOBODY_READY } };
 }
 
+type InPhase<P extends RunState["phase"]> = Extract<RunState, { phase: P }>;
+
+/** Between Runs: before the first one, or on the Run End screen, where players press Ready or Again. */
+export function isBetweenRuns(run: RunState): run is InPhase<"waiting" | "ended"> {
+  return run.phase === "waiting" || run.phase === "ended";
+}
+
+/** A Run is under way: counting down, running, or paused for a dropped player. */
+export function isUnderway(run: RunState): run is InPhase<"countdown" | "running" | "paused"> {
+  return !isBetweenRuns(run);
+}
+
 /** Whether `bird`'s player is Ready (before the first Run) or has pressed Again (on the Run End screen). */
 export function isReady(run: RunState, bird: Bird): boolean {
-  return "ready" in run && run.ready[bird];
+  return isBetweenRuns(run) && run.ready[bird];
 }
 
 /** A player presses (or takes back) Ready, or Again on the Run End screen. Ignored during a Run. */
 export function setReady(run: RunState, bird: Bird, value: boolean): RunState {
-  if (!("ready" in run)) return run;
+  if (!isBetweenRuns(run)) return run;
   return { ...run, ready: { ...run.ready, [bird]: value } };
 }
 

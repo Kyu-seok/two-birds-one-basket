@@ -1,5 +1,6 @@
 import {
   TEAM_NAME_MAX_LENGTH,
+  isBetweenRuns,
   isReady,
   wholeSecondsLeft,
   partnerOf,
@@ -158,14 +159,14 @@ export function runEndText(run: Extract<RunState, { phase: "ended" }>, myBird: B
 }
 
 function render({ run, myBird, present, calibrated, scores, replayOpening }: RunView): string {
-  if (run.phase === "countdown" || run.phase === "running") return "";
-  const partner = partnerOf(myBird);
   if (run.phase === "paused") {
     return `<h2>Paused</h2>
       <p>${BIRD_NAMES[run.dropped]} dropped. Waiting for them to come back…</p>
       <p class="distance">${wholeSecondsLeft(run.secondsLeft)}</p>
       <p class="partner">If they don't reopen the link in time, the Run ends as Abandoned at ${run.distance.toFixed(1)} m.</p>`;
   }
+  if (!isBetweenRuns(run)) return "";
+  const partner = partnerOf(myBird);
   const mine = isReady(run, myBird);
   const label = run.phase === "ended" ? "Again" : "Ready";
 
