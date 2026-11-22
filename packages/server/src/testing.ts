@@ -1,6 +1,8 @@
 /** Test doubles shared by the server's tests: drive a RoomRegistry without sockets or real timers. */
-import { COUNTDOWN_SECONDS, TICK_HZ, type ServerMessage } from "@tbob/shared";
+import { randomUUID } from "node:crypto";
+import { COUNTDOWN_SECONDS, TICK_HZ, type ServerMessage, type StoredRun, type TeamInfo, type TopRun } from "@tbob/shared";
 import { createRoomRegistry, type Connection, type Player, type Scheduler } from "./rooms.ts";
+import { pairKey, type Pair, type ScoreStore } from "./scores.ts";
 
 export class FakeConnection implements Connection {
   messages: ServerMessage[] = [];
@@ -28,6 +30,36 @@ export class FakeScheduler implements Scheduler {
   /** Fires every live timer `n` times. */
   fire(n = 1) {
     for (let i = 0; i < n; i++) for (const t of this.timers) if (!t.cancelled) t.fn();
+  }
+}
+
+/** A ScoreStore in memory; `scores.test.ts` holds it to the same contract as the SQLite one. */
+export class MemoryScores implements ScoreStore {
+  teams = new Map<string, TeamInfo>();
+  runs: { key: string | null; run: StoredRun }[] = [];
+  teamOf(pair: Pair) {
+    return this.teams.get(pairKey(pair)) ?? null;
+  }
+  nameTeam(pair: Pair, name: string) {
+    const key = pairKey(pair);
+    if (!this.teams.has(key)) this.teams.set(key, { id: randomUUID(), name });
+    return this.teams.get(key)!;
+  }
+  saveRun(pair: Pair | null, run: StoredRun) {
+    this.runs.push({ key: pair && pairKey(pair), run });
+  }
+  history(pair: Pair) {
+    const key = pairKey(pair);
+    return this.runs.filter((r) => r.key === key).map((r) => r.run);
+  }
+  top10() {
+    const top: TopRun[] = [];
+    for (const { key, run } of this.runs) {
+      const team = key === null ? undefined : this.teams.get(key);
+      if (team) top.push({ ...run, team });
+    }
+    // A stable sort keeps equal Distances in the order they were run, as SQLite's does.
+    return top.sort((x, y) => y.distance - x.distance).slice(0, 10);
   }
 }
 
