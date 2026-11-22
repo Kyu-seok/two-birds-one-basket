@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TICK_HZ } from "./messages.ts";
-import { courseOf, type Course, type Span } from "./course.ts";
+import { courseOf, fixedCourse, type Course, type Span } from "./course.ts";
 import { PHYSICS, initialWorld, stepWorld, type Thrusts, type WorldState } from "./physics.ts";
 
 const TICK = 1 / TICK_HZ;
@@ -49,4 +49,78 @@ describe("a moving platform", () => {
   });
 });
 
-void PHYSICS;
+describe("a crumbling platform", () => {
+  // Ground to 5 m, a crumbling platform from 6 to 8 m (holds 1 s, gone 2 s), ground from 9 m.
+  const course = courseOf([
+    { from: -10, to: 5, height: 0 },
+    { from: 6, to: 8, height: 0, crumble: { holdSeconds: 1, goneSeconds: 2 } },
+    { from: 9, to: 20, height: 0 },
+  ]);
+
+  it("holds a Bird that stands on it for a while", () => {
+    const w = run(standing(4, 7), SILENT, 0.9, course);
+    expect(w.birds.blue).toMatchObject({ x: 7, y: 0, grounded: true });
+  });
+
+  it("then gives way, and the Bird on it drops and hangs from its partner; it does not kill", () => {
+    const w = run(standing(4, 7), SILENT, 2, course);
+    expect(w.birds.blue.y).toBeLessThan(0);
+    expect(w.fallen).toBe(false);
+  });
+
+  it("drops both Birds if both stay on it, ending the Run as Fallen", () => {
+    const w = run(standing(6.5, 7.5), SILENT, 3, course);
+    expect(w.fallen).toBe(true);
+  });
+
+  it("starts crumbling when a Bird first stands on it, not when the Run starts", () => {
+    const waited = run(standing(3, 4), SILENT, 5, course);
+    const onIt = { ...waited, birds: { ...waited.birds, blue: { ...waited.birds.blue, x: 7 } } };
+    expect(run(onIt, SILENT, 0.9, course).birds.blue.grounded).toBe(true);
+    expect(run(onIt, SILENT, 2, course).birds.blue.y).toBeLessThan(0);
+  });
+
+  it("comes back after a while", () => {
+    // Blue drops, is hauled back up by Pink, and the platform is there again later.
+    const w = run(standing(4, 7), SILENT, 1.5, course);
+    const later = run(w, SILENT, 3, course);
+    const blueBack = { ...later, birds: { pink: later.birds.pink, blue: { ...later.birds.pink, x: 7 } } };
+    expect(run(blueBack, SILENT, 0.5, course).birds.blue).toMatchObject({ x: 7, y: 0, grounded: true });
+  });
+});
+
+describe("a gust", () => {
+  // Flat ground with a headwind over 0..10 m blowing for the first 2 s of every 5 s.
+  const course: Course = fixedCourse([
+    {
+      x: -20,
+      piece: {
+        name: "windy",
+        tier: "hard",
+        length: 60,
+        ground: [{ from: 0, to: 60, height: 0 }],
+        ceilings: [],
+        gusts: [{ from: 20, to: 30, push: -2, period: 5, on: 2 }],
+      },
+    },
+  ]);
+
+  it("pushes a Bird back while it blows", () => {
+    const w = run(standing(4, 5), SILENT, 1, course);
+    expect(w.birds.pink.x).toBeCloseTo(2, 1);
+    expect(w.birds.pink.grounded).toBe(true);
+  });
+
+  it("comes in bursts: between them, the air is still", () => {
+    const calm = run(standing(4, 5), SILENT, 2, course);
+    const still = run(calm, SILENT, 2.5, course);
+    expect(still.birds.pink.x).toBeCloseTo(calm.birds.pink.x, 6);
+  });
+
+  it("shortens a jump made into it", () => {
+    const into = run(standing(4, 5), { pink: 1, blue: 0 }, 0.5, course).birds.pink.x;
+    const waited = run(standing(4, 5), SILENT, 2.2, course);
+    const calm = run(waited, { pink: 1, blue: 0 }, 0.5, course).birds.pink.x;
+    expect(into - 4).toBeLessThan(calm - waited.birds.pink.x - 0.5);
+  });
+});
