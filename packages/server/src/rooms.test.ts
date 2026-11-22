@@ -93,7 +93,7 @@ describe("RoomRegistry", () => {
     expect(b.last("state")).toEqual(stateA);
   });
 
-  it("lifts only the Side whose player is yelling, tilting the Basket away from it", () => {
+  it("lifts only the Side whose player is giving Thrust, tilting the Basket away from it", () => {
     const { rooms, scheduler } = setup();
     const code = rooms.createRoom();
     const [a, b] = [new FakeConnection(), new FakeConnection()];

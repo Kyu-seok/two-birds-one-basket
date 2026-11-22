@@ -1,61 +1,76 @@
-# Two Birds, One Basket — Plan
+# Two Birds, One Rope — Plan
 
-A 2-player co-op voice game for desktop browsers. Two players in different places
-each control one Bird by **yelling**; together the Birds carry a Basket with an Egg
-upward through an endless climb while a Hawk chases them from below.
+A 2-player co-op voice platformer for desktop browsers. Two players in different
+places each control one Bird with their **voice**. The two Birds are joined by a Rope
+and travel together as far as they can along an endless side-scrolling Course.
 
 Terms in capitals are defined in `GLOSSARY.md`; key decisions are in `docs/adr/`.
 
 ## Core mechanic
 
-- **Twin-thruster control.** Each player takes one Side (Left / Right) and controls
-  that Side's Bird. Mic Loudness, after Calibration, becomes **Thrust** (0..1, analog).
-  Equal Thrust → the Basket rises straight up; one Side louder → the Basket tilts and
-  drifts away from the louder Side; silence → the Basket sinks under gravity.
-- **Calibration** once per Room (with a "recalibrate" button): measure the Noise Floor
-  (silence) then Max Yell; Thrust is normalized 0..1 within that range.
-- **No auto-scroll.** The world never moves the players; the camera follows the Basket.
-- **Floaty, heavy physics by design** so network latency reads as inertia.
+- **Voice moves your Bird.** Mic Loudness, after Calibration and the player's
+  Sensitivity, becomes **Thrust** (0..1, analog):
+  - silence → your Bird stops;
+  - a quieter voice → it walks forward, faster the louder you are;
+  - above a threshold → it jumps, higher the louder you are.
+  Movement is forward only. Full Thrust is a player's **Full Voice**: a comfortable
+  strong voice, never a shout.
+- **The Rope** joins the two Birds. Each moves freely within its length and either can
+  lead or pass the other. On the ground a tight Rope stops the Bird in front without
+  dragging the one behind. Off the ground it acts as a real rope: a Bird that drops
+  hangs and swings from its partner.
+- **Rescue.** A hanging Bird climbs back up with its voice, its partner can haul it
+  up by walking forward, and doing both is fastest. The anchoring Bird has to stay
+  put, which means staying silent.
+- **Skill, not effort.** Nothing chases you and the screen never scrolls on its own
+  (ADR 0007), so players can always go silent to breathe or plan. Pieces punish too
+  much voice as much as too little (ADR 0008).
+- **Forgiving ledges.** The server runs the simulation, so your own Bird reacts a
+  round trip late (ADR 0002). Pieces allow for it: a short grace period to jump after
+  leaving a ledge, generous ledges and slow walking.
 
 ## Game mode
 
-- **Endless vertical climb.** Each Run's Course is the Opening followed by hand-made
-  Pieces placed in random order. Higher Tiers appear more often, gaps get narrower and
-  wind gets stronger with Height.
-- **Opening** (~50m, hand-made, teaches): rise together → steer →
-  hold a steady Thrust → the Hawk appears. Played only on a Team's first Run; later
-  Runs start where the random Pieces begin, with a "replay Opening" option.
+- **Endless Course.** Each Run's Course is the Opening followed by hand-made Pieces
+  placed in random order. Harder Tiers appear more often with Distance.
+- **Opening** (~50m, hand-made, teaches): talk to walk → go silent to stop at an edge →
+  a small jump → a soft jump under a low ceiling (too loud bonks your head) → a gap
+  you must jump together → a safe pit to practise the rescue. Played only on a Team's
+  first Run; later Runs start where the random Pieces begin, with a "replay Opening"
+  option.
 - **First set of Pieces (~10, 3 Tiers):**
-  - Easy: open stretch, wide gap, gentle breeze.
-  - Medium: narrow gap, zigzag, low overhang, steady crosswind.
-  - Hard: gusts that come in bursts, swinging branch, tight chimney.
-- **Pressure — the Hawk** (ADR 0004). Circles up from below. Its pace rises with
-  Height; it speeds up when far behind so it stays ~8s behind (no safe lead to rest in).
-  Distance meter + a rising screech warn players.
-- **Timing hazards** (gusts, swinging branches) in higher Pieces, so lingering is risky.
-- **Run End.** The Egg takes 3 Cracks: each hit cracks it and knocks the Basket back.
-  A Run ends as **Snatched** (the Hawk catches the Basket), **Broken** (third Crack)
-  or **Abandoned** (a player doesn't reconnect within 30s).
-- **Height** = highest point reached, in meters; the Run's score. Time taken and
-  Cracks are recorded in the Team History but not scored.
+  - Easy: flat walk, small gaps, steps up and down, a low ceiling over flat ground.
+  - Medium: gaps both Birds must jump close together, crumbling platforms, a gap with a
+    low ceiling, moving platforms.
+  - Hard: Rope-swing gaps (one Bird anchors while the other swings across), gusts that
+    come in bursts, narrow pillars with room for one Bird, a run of precise jumps
+    under a ceiling.
+- **Hazards only make you fall.** Crumbling and moving platforms, gusts and low
+  ceilings all work by dropping a Bird. Nothing kills on touch.
+- **Run End.** **Fallen** (both Birds drop with nothing holding them) or
+  **Abandoned** (a player doesn't reconnect within 30s). A single dropped Bird hangs
+  from the Rope and can be rescued.
+- **Distance** = how far the Bird behind got, in meters; the Run's score. Time taken is
+  recorded in the Team History but not scored.
+- **Camera:** one shared view centred between the two Birds, the same on both screens.
 
 ## Communication (part of the game)
 
 - **Built-in voice chat** (WebRTC peer-to-peer audio) with browser echo cancellation on.
-  **Talking also adds Thrust** (same mic, ADR 0001), so players decide when and
-  whether to speak.
-- **Text chat** in the Room — the silent channel (typing makes no noise, but you
+  **Talking also moves your Bird** (same mic, ADR 0001): chat while walking on safe
+  ground, go quiet at the edge.
+- **Text chat** in the Room: the silent channel (typing makes no noise, but you
   have to look away from the game).
 - Headphones recommended, not required.
 
 ## Room flow
 
 1. One player creates a Room → gets a shareable link (Room Code also shown).
-2. The partner opens the link; each player takes a Side.
-3. Both calibrate → both Ready → 3-2-1 countdown → Run.
-4. Run End screen: Height, Run End reason, Team History, Top 10. Both players press
+2. The partner opens the link; each player gets a Bird, told apart by colour.
+3. Both calibrate (silence, then Full Voice) → both Ready → 3-2-1 countdown → Run.
+4. Run End screen: Distance, Run End reason, Team History, Top 10. Both players press
    "Again" to start the next Run.
-- **Disconnect:** the Run pauses with the Basket frozen; the player has 30s to
+- **Disconnect:** the Run pauses with both Birds frozen; the player has 30s to
   reconnect through the same link, after which the Run ends as Abandoned and is saved.
 - No accounts.
 
@@ -66,7 +81,7 @@ Terms in capitals are defined in `GLOSSARY.md`; key decisions are in `docs/adr/`
   regardless of who created the Room. Otherwise the Run End screen offers to name a
   new Team. A browser can belong to many Teams; a team name alone never identifies a
   Team, so another pair can't overwrite your history by typing the same name.
-- **Team History** (each Run: Height, time, Cracks, Run End) + **Top 10** across all Teams.
+- **Team History** (each Run: Distance, time, Run End) + **Top 10** across all Teams.
 - Stored in SQLite on the server.
 - Main goal: the **same pair coming back** to beat their own record.
 
@@ -75,9 +90,10 @@ Terms in capitals are defined in `GLOSSARY.md`; key decisions are in `docs/adr/`
 - Target case: players in Korea and Malaysia; server in Korea.
 - **Server-authoritative** (ADR 0002): clients send Thrust ~30 times a second; the
   server runs the physics at 30 Hz and sends the state back; clients smooth the
-  movement between updates.
-- Each player's own Loudness meter and Bird flapping react instantly on their screen;
-  the Basket reacts about one round trip later.
+  movement between updates. Client prediction for your own Bird only if playtests
+  show jumps feel late.
+- Each player's own Loudness meter reacts instantly on their screen; their Bird reacts
+  about one round trip later.
 - Both players' pings are shown on screen. No artificial latency equalizing (ADR 0003).
 
 ## Stack
@@ -88,27 +104,23 @@ Terms in capitals are defined in `GLOSSARY.md`; key decisions are in `docs/adr/`
   - Shared package: Piece data, message types, physics constants.
 - Desktop browsers only.
 - Art: simple vector shapes drawn on the Canvas, pastel style. A few sound effects
-  (flaps, bump/crack, hawk screech, run over).
+  (steps, jump, bonk, Rope snap taut, fall, Run End).
 
 ## Hosting (ADR 0006)
 
-- Home mini PC in Korea (Linux + Docker), shared with other projects (CI/CD bursts,
-  an idle Qwen3 1.7B model).
-- `docker compose`: game server + `cloudflared` (Cloudflare Tunnel). The game
-  container gets higher CPU priority (`cpu_shares`) than CI so physics ticks don't stutter.
-- Domain: `kyuships.com` (registered at AWS Route 53). Move its nameservers to Cloudflare
-  (free plan) and serve the game at **`twobirds.kyuships.com`**.
+- Home mini PC in Korea (Linux + Docker), shared with other projects.
+- `docker compose` publishes the game on `127.0.0.1:8100`; the mini PC's existing
+  Cloudflare Tunnel serves it at **`twobirds.kyuships.com`**.
 - WebRTC voice: public STUN servers; a TURN relay server can be added later if some
   connections fail.
 
-## First milestone
+## Milestones
 
-Thrust from two remote browsers moving one shared Basket in a single test Piece,
-through the real server, to test the riskiest parts first: voice input,
-the network, and how the lag feels.
+1. Done: the first tracer bullet (#1) proved the plumbing: Rooms, the 30 Hz server
+   loop, mic → Thrust, pings, the partner bot (`npm run bot`) and per-player Sensitivity.
+2. Next: two voices walk and jump two roped Birds on flat ground with one gap, through
+   the real server, to test how voice jumping and the lag feel.
 
 ## Repo / workflow
 
-- GitHub: `Kyu-seok/two-birds-one-basket` (public).
-- Next: `/setup-matt-pocock-skills` → `/grill-with-docs` (glossary + ADRs) →
-  `/to-tickets` (GitHub issues).
+- GitHub: `Kyu-seok/two-birds-one-rope` (public). Issues are the work queue.

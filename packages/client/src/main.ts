@@ -34,12 +34,12 @@ function landing() {
   const code = /^[A-Z0-9]{1,12}$/.test(raw) ? raw : null;
   if (code) {
     showPanel(`<p>Join Room <span class="code">${code}</span></p>
-      <p>Your mic controls your Bird. Yell to fly!</p>
+      <p>Your voice lifts your Bird. No need to shout.</p>
       <button id="enter">Join with mic</button>`);
     document.getElementById("enter")!.onclick = () => enter(code);
     return;
   }
-  showPanel(`<p>Carry the Basket together by yelling.</p><button id="create">Create a Room</button>`);
+  showPanel(`<p>Carry the Basket together with your voices.</p><button id="create">Create a Room</button>`);
   document.getElementById("create")!.onclick = async () => {
     try {
       const code = await createRoom();

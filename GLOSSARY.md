@@ -1,6 +1,6 @@
-# Two Birds, One Basket
+# Two Birds, One Rope
 
-A 2-player co-op voice game: two players in different places each yell to control one Bird, and together the Birds carry a Basket upward while a Hawk chases them.
+A 2-player co-op voice platformer: two players in different places use their voices to walk and jump together as far as they can along an endless Course.
 
 ## Rooms and Runs
 
@@ -12,33 +12,22 @@ _Avoid_: Session, lobby, game, match
 The short code that identifies a Room, shown alongside its link.
 
 **Run**:
-One climb, from the countdown until the Run ends. A Room holds many Runs.
+One attempt at the Course, from the countdown until the Run ends. A Room holds many Runs.
 _Avoid_: Game, round, match, attempt
 
 **Run End**:
-How a Run finished: **Snatched** (the Hawk caught the Basket), **Broken** (the Egg took its third Crack), or **Abandoned** (a player left and didn't reconnect in time).
+How a Run finished: **Fallen** (both Birds dropped off the Course with nothing holding them) or **Abandoned** (a player left and didn't reconnect in time). A single Bird that drops hangs from the Rope and can be brought back up, so it doesn't end the Run.
 _Avoid_: Game over, death
 
-## Players and the Basket
-
-**Side**:
-Left or Right. Each player takes one Side for the Room.
-_Avoid_: Seat, slot, P1/P2
+## Players and Birds
 
 **Bird**:
-The character a player controls; one per Side.
-_Avoid_: Avatar, player character
+The character a player controls; each player has one for the Room, told apart by colour.
+_Avoid_: Avatar, player character, Side, P1/P2
 
-**Basket**:
-The object the two Birds carry together, one Bird on each side of it.
-
-**Egg**:
-The cargo in the Basket. It can take three Cracks before it breaks.
-_Avoid_: Payload, item
-
-**Crack**:
-One point of damage to the Egg, taken when the Basket hits something.
-_Avoid_: Hit, life, heart
+**Rope**:
+The line joining the two Birds. Each Bird moves freely within its length. On the ground a tight Rope stops the Bird in front, without dragging the one behind; a Bird off the ground hangs and swings from it.
+_Avoid_: Tether, chain, leash
 
 **Team**:
 A named pair of players, recognised automatically when both players' browsers belong to it. A player can belong to many Teams.
@@ -51,22 +40,27 @@ The raw level picked up by a player's mic.
 _Avoid_: Volume
 
 **Thrust**:
-Loudness scaled by Calibration to between 0 and 1; what actually lifts a Bird. Any sound counts, including talking.
+Loudness scaled by Calibration and Sensitivity to between 0 and 1; it sets how fast a Bird walks and how high it jumps. Any sound counts, including talking.
 _Avoid_: Power, force, volume
 
 **Calibration**:
-Measuring a player's Noise Floor and Max Yell, done once per Room.
+Measuring a player's Noise Floor and Full Voice, done once per Room.
 
 **Noise Floor**:
 A player's Loudness while silent; it gives zero Thrust.
 
-**Max Yell**:
-A player's loudest yell; it gives full Thrust.
+**Full Voice**:
+A player's comfortable strong speaking voice, not a shout; it gives full Thrust.
+_Avoid_: Max Yell, max volume
+
+**Sensitivity**:
+A player's own setting for how much voice it takes to reach full Thrust.
+_Avoid_: Gain, mic volume
 
 ## The Course
 
 **Course**:
-The whole vertical climb of one Run.
+The whole endless path of one Run, travelled from left to right.
 _Avoid_: Level, map, track
 
 **Opening**:
@@ -74,26 +68,22 @@ The hand-made first stretch of the Course that teaches the controls. Played only
 _Avoid_: Tutorial, intro level
 
 **Piece**:
-One hand-made building block of the Course, placed in random order above the Opening.
+One hand-made building block of the Course, placed in random order after the Opening.
 _Avoid_: Chunk, segment, section, level
 
 **Tier**:
-A Piece's difficulty: Easy, Medium or Hard. Harder Tiers appear more often with Height.
+A Piece's difficulty: Easy, Medium or Hard. Harder Tiers appear more often with Distance.
 _Avoid_: Difficulty level
-
-**Hawk**:
-The bird chasing the Basket up from below; catching it ends the Run as Snatched.
-_Avoid_: Enemy, predator, chaser
 
 ## Scoring
 
-**Height**:
-The highest point the Basket reached in a Run, in meters; the Run's score.
-_Avoid_: Altitude, distance, score
+**Distance**:
+How far along the Course the Bird behind got in a Run, in meters; the Run's score.
+_Avoid_: Height, progress, score
 
 **Team History**:
-Every Run a Team has finished, with its Height and Run End.
+Every Run a Team has finished, with its Distance and Run End.
 
 **Top 10**:
-The ten highest Heights across all Teams.
+The ten longest Distances across all Teams.
 _Avoid_: Leaderboard, high scores
