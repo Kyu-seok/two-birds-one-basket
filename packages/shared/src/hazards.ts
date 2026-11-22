@@ -15,13 +15,11 @@ export interface PlacedSpan extends Span {
   key: string;
 }
 
-/** A gust placed on the Course, in Course coordinates. */
-export type PlacedGust = Gust;
-
+/** A stretch of the Course at one moment of the Run, all in Course coordinates. */
 export interface Layout {
   ground: PlacedSpan[];
   ceilings: Span[];
-  gusts: PlacedGust[];
+  gusts: Gust[];
 }
 
 /** How far a moving span has slid from where its Piece puts it, at Run `time`. */
