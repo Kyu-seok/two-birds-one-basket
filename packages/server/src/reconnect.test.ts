@@ -74,16 +74,88 @@ describe("a player dropping mid-Run", () => {
     expect(scores.runs[0]!.run.seconds).toBeCloseTo(1, 1);
   });
 
-  it("records the Run as Abandoned if the remaining player leaves too", () => {
-    const { scores, pink, blue } = walking();
+  it("keeps the Room and the paused Run if the remaining player reloads too, and resumes once both are back", () => {
+    const { scheduler, rooms, code, scores, pink, blue } = walking();
+    blue.disconnect();
+    pink.disconnect();
+    scheduler.fire(TICK_HZ * 5);
+    expect(scores.runs).toEqual([]);
+
+    // The player who dropped first comes back first: the Run waits on for the other.
+    const b2 = new FakeConnection();
+    expect(rooms.connect(code, b2, BO)).not.toBeNull();
+    scheduler.fire();
+    expect(b2.last("state")!.run).toMatchObject({ phase: "paused", dropped: "pink" });
+
+    const a2 = new FakeConnection();
+    expect(rooms.connect(code, a2, ANN)).not.toBeNull();
+    scheduler.fire();
+    expect(a2.last("joined")?.bird).toBe("pink");
+    expect(a2.last("state")!.run.phase).toBe("running");
+    expect(a2.last("state")!.calibrated).toEqual({ pink: true, blue: true });
+  });
+
+  it("ends the Run as Abandoned and closes the Room once neither player comes back in time", () => {
+    const { scheduler, rooms, code, scores, pink, blue } = walking();
     blue.disconnect();
     pink.disconnect();
 
+    scheduler.fire(TICK_HZ * RECONNECT_SECONDS);
+
     expect(scores.runs.map((r) => r.run.end)).toEqual(["abandoned"]);
+    expect(scheduler.timers.every((t) => t.cancelled)).toBe(true);
+    const late = new FakeConnection();
+    expect(rooms.connect(code, late, ANN)).toBeNull();
+    expect(late.messages).toEqual([{ type: "roomNotFound" }]);
+  });
+});
+
+describe("a player with no Browser ID dropping mid-Run", () => {
+  it("ends the Run as Abandoned at once and records it, since nobody can come back to their Bird", () => {
+    const { scheduler, scores, a, blue } = runningRoom({ pink: ANN });
+    blue.disconnect();
+    scheduler.fire();
+
+    expect(a.last("state")!.run).toMatchObject({ phase: "ended", end: "abandoned", dropped: "blue" });
+    expect(scores.runs.map((r) => r.run.end)).toEqual(["abandoned"]);
+  });
+
+  it("doesn't let a stranger who takes their Bird resume the Run: they calibrate and press Again first", () => {
+    const { scheduler, rooms, code, a, blue } = runningRoom({ pink: ANN });
+    blue.disconnect();
+
+    const stranger = rooms.connect(code, new FakeConnection(), "browser-cy")!;
+    stranger.receive({ type: "ready", value: true });
+    scheduler.fire();
+
+    const state = a.last("state")!;
+    expect(state.run).toMatchObject({ phase: "ended", ready: { blue: false } });
+    expect(state.calibrated.blue).toBe(false);
   });
 });
 
 describe("a player dropping outside a Run", () => {
+  it("keeps a Room whose creator reloads while waiting for a partner", () => {
+    const { rooms } = setup();
+    const code = rooms.createRoom();
+    rooms.connect(code, new FakeConnection(), ANN)!.disconnect();
+
+    const again = new FakeConnection();
+    expect(rooms.connect(code, again, ANN)).not.toBeNull();
+    expect(again.last("joined")?.bird).toBe("pink");
+  });
+
+  it("closes a Room nobody has come back to once the reserved Bird is freed", () => {
+    const { rooms, scheduler } = setup();
+    const code = rooms.createRoom();
+    rooms.connect(code, new FakeConnection(), ANN)!.disconnect();
+
+    scheduler.fire(TICK_HZ * RECONNECT_SECONDS);
+
+    expect(scheduler.timers.every((t) => t.cancelled)).toBe(true);
+    expect(rooms.connect(code, new FakeConnection(), ANN)).toBeNull();
+  });
+
   it("keeps their Bird and Calibration for when the same browser comes back", () => {
     const { rooms, scheduler } = setup();
     const code = rooms.createRoom();

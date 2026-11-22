@@ -1,6 +1,8 @@
 import {
   TEAM_NAME_MAX_LENGTH,
+  isBetweenRuns,
   isReady,
+  wholeSecondsLeft,
   partnerOf,
   type Bird,
   type PerBird,
@@ -9,14 +11,10 @@ import {
   type ServerMessage,
   type StoredRun,
 } from "@tbob/shared";
+import { BIRD_NAMES } from "./render.ts";
 
 export type Scores = Omit<Extract<ServerMessage, { type: "scores" }>, "type">;
 
-const NAME: PerBird<string> = { pink: "Pink", blue: "Blue" };
-const RUN_END_TEXT: Record<RunEndReason, string> = {
-  fallen: "Fallen: both Birds dropped with nothing holding them.",
-  abandoned: "Abandoned: your partner left and didn't come back in time.",
-};
 const RUN_END_WORD: Record<RunEndReason, string> = { fallen: "Fallen", abandoned: "Abandoned" };
 
 export interface RunView {
@@ -135,6 +133,11 @@ function teamSection(scores: Scores | null): string {
   return `${naming}${historyTable(scores.history)}${topTable(scores)}`;
 }
 
+/** A toggle button that is pressed, and says so. */
+function pressedButton(kind: string, label: string): string {
+  return `<button class="${kind} pressed">${label} ✓ (press to take back)</button>`;
+}
+
 /**
  * Whether the next Run starts with the Opening, and the button to replay it. A known Team that
  * has finished a Run skips it unless a player asks; everyone else gets it.
@@ -143,30 +146,38 @@ function openingLine(scores: Scores | null, replay: boolean): string {
   const skips = !!scores?.team && scores.history.length > 0;
   if (!skips) return `<p class="opening">The Run starts with the Opening, to learn the controls.</p>`;
   return replay
-    ? `<p class="opening"><button class="replay pressed">Replay the Opening ✓ (press to take back)</button></p>`
+    ? `<p class="opening">${pressedButton("replay", "Replay the Opening")}</p>`
     : `<p class="opening"><button class="replay">Replay the Opening</button></p>`;
 }
 
+/** Says how the Run ended, worded for `myBird`'s player. */
+export function runEndText(run: Extract<RunState, { phase: "ended" }>, myBird: Bird): string {
+  if (run.end === "fallen") return "Fallen: both Birds dropped with nothing holding them.";
+  return run.dropped === myBird
+    ? "Abandoned: you left and didn't come back in time."
+    : "Abandoned: your partner left and didn't come back in time.";
+}
+
 function render({ run, myBird, present, calibrated, scores, replayOpening }: RunView): string {
-  if (run.phase === "countdown" || run.phase === "running") return "";
-  const partner = partnerOf(myBird);
   if (run.phase === "paused") {
     return `<h2>Paused</h2>
-      <p>${NAME[run.dropped]} dropped. Waiting for them to come back…</p>
-      <p class="distance">${Math.ceil(run.secondsLeft - 1e-6)}</p>
+      <p>${BIRD_NAMES[run.dropped]} dropped. Waiting for them to come back…</p>
+      <p class="distance">${wholeSecondsLeft(run.secondsLeft)}</p>
       <p class="partner">If they don't reopen the link in time, the Run ends as Abandoned at ${run.distance.toFixed(1)} m.</p>`;
   }
+  if (!isBetweenRuns(run)) return "";
+  const partner = partnerOf(myBird);
   const mine = isReady(run, myBird);
   const label = run.phase === "ended" ? "Again" : "Ready";
 
   let partnerLine: string;
-  if (!present[partner]) partnerLine = `Waiting for ${NAME[partner]} to join…`;
-  else if (isReady(run, partner)) partnerLine = `${NAME[partner]} pressed ${label}.`;
-  else if (!calibrated[partner]) partnerLine = `${NAME[partner]} is calibrating…`;
-  else partnerLine = `Waiting for ${NAME[partner]} to press ${label}…`;
+  if (!present[partner]) partnerLine = `Waiting for ${BIRD_NAMES[partner]} to join…`;
+  else if (isReady(run, partner)) partnerLine = `${BIRD_NAMES[partner]} pressed ${label}.`;
+  else if (!calibrated[partner]) partnerLine = `${BIRD_NAMES[partner]} is calibrating…`;
+  else partnerLine = `Waiting for ${BIRD_NAMES[partner]} to press ${label}…`;
 
   const button = mine
-    ? `<button class="ready pressed">${label} ✓ (press to take back)</button>`
+    ? pressedButton("ready", label)
     : `<button class="ready"${calibrated[myBird] ? "" : " disabled"}>${label}</button>`;
 
   const team = scores?.team ? escapeHtml(scores.team.name) : null;
@@ -174,7 +185,7 @@ function render({ run, myBird, present, calibrated, scores, replayOpening }: Run
     run.phase === "ended"
       ? `<h2>Run End${team ? `: ${team}` : ""}</h2>
          <p class="distance">${run.distance.toFixed(1)} m</p>
-         <p>${RUN_END_TEXT[run.end]}</p>`
+         <p>${runEndText(run, myBird)}</p>`
       : `<h2>${team ? `Welcome back, ${team}!` : "Ready?"}</h2><p>The Run starts when you both press Ready.</p>`;
 
   const below = run.phase === "ended" ? teamSection(scores) : "";

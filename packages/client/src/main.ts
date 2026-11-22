@@ -4,6 +4,7 @@ import {
   SENSITIVITY_MIN,
   TICK_MS,
   calibratedRange,
+  isUnderway,
   loudnessToThrust,
   partnerOf,
   type Bird,
@@ -17,7 +18,8 @@ import { KEYS_MODE, keyboardThrust } from "./keys.ts";
 import { openMic, type Mic } from "./mic.ts";
 import { createRoom, joinRoom, type RoomSocket } from "./net.ts";
 import { createRenderer } from "./render.ts";
-import { loadBrowserId, rememberCalibration, rememberTeam, savedCalibration } from "./identity.ts";
+import { loadBrowserId, rememberTeam } from "./identity.ts";
+import { rememberCalibration, savedCalibration } from "./saved-calibration.ts";
 import { setupRunScreen, type Scores } from "./run.ts";
 import { startVoice, type VoiceLink } from "./voice.ts";
 
@@ -209,7 +211,7 @@ async function enter(roomCode: string) {
       if (latest && myBird) {
         const world = prev ? interpolate(prev, latest, now) : latest.msg.world;
         const s = latest.msg;
-        const inRun = s.run.phase === "countdown" || s.run.phase === "running" || s.run.phase === "paused";
+        const inRun = isUnderway(s.run);
         // Calibration waits until the Run is over.
         if (!keys) recalibrate.hidden = inRun;
         runScreen({

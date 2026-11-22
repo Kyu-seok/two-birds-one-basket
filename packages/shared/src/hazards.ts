@@ -1,4 +1,4 @@
-import type { Course, Gust, Motion, Span } from "./course.ts";
+import type { Course, Crumble, Gust, Motion, Span } from "./course.ts";
 
 /**
  * Where the Course's timed hazards are at a moment of the Run. The server collides with this and
@@ -15,13 +15,11 @@ export interface PlacedSpan extends Span {
   key: string;
 }
 
-/** A gust placed on the Course, in Course coordinates. */
-export type PlacedGust = Gust;
-
+/** A stretch of the Course at one moment of the Run, all in Course coordinates. */
 export interface Layout {
   ground: PlacedSpan[];
   ceilings: Span[];
-  gusts: PlacedGust[];
+  gusts: Gust[];
 }
 
 /** How far a moving span has slid from where its Piece puts it, at Run `time`. */
@@ -29,16 +27,21 @@ export function motionOffset(m: Motion, time: number): number {
   return (m.dx * (1 - Math.cos(2 * Math.PI * (time / m.period + (m.phase ?? 0))))) / 2;
 }
 
+/** How long after first being stood on a crumbling span is back as new. */
+function crumbleCycle(c: Crumble): number {
+  return c.holdSeconds + c.goneSeconds;
+}
+
 /** Whether a crumbling span first stood on at `touchedAt` has given way at `time`. */
 export function hasCrumbled(span: Span, touchedAt: number | undefined, time: number): boolean {
   if (!span.crumble || touchedAt === undefined) return false;
   const since = time - touchedAt;
-  return since >= span.crumble.holdSeconds && since < span.crumble.holdSeconds + span.crumble.goneSeconds;
+  return since >= span.crumble.holdSeconds && since < crumbleCycle(span.crumble);
 }
 
 /** Whether a crumbling span first stood on at `touchedAt` has come back as new by `time`. */
 export function hasReformed(span: Span, touchedAt: number, time: number): boolean {
-  return !span.crumble || time - touchedAt >= span.crumble.holdSeconds + span.crumble.goneSeconds;
+  return !span.crumble || time - touchedAt >= crumbleCycle(span.crumble);
 }
 
 /** Whether `gust` is blowing at Run `time`. */

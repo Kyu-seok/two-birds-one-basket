@@ -1,3 +1,4 @@
+import { cleanText } from "./chat.ts";
 import type { RunEndReason } from "./run.ts";
 
 /** A finished Run as kept in a Team History. */
@@ -29,8 +30,5 @@ export const TEAM_NAME_MAX_LENGTH = 24;
  * to TEAM_NAME_MAX_LENGTH characters. Returns null when nothing is left.
  */
 export function teamName(raw: unknown): string | null {
-  if (typeof raw !== "string") return null;
-  const clean = raw.replace(/[\p{Cc}\p{Cf}]/gu, "").replace(/\s+/g, " ").trim();
-  const name = [...clean].slice(0, TEAM_NAME_MAX_LENGTH).join("").trim();
-  return name === "" ? null : name;
+  return cleanText(raw, TEAM_NAME_MAX_LENGTH, (s) => s.replace(/[\p{Cc}\p{Cf}]/gu, "").replace(/\s+/g, " "));
 }

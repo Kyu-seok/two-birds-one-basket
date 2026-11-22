@@ -371,9 +371,6 @@ function holdRope(birds: PerBird<BirdState>, length: number, around: Around) {
   }
 }
 
-/** The Course near a Bird, in Course coordinates. */
-type Surroundings = Layout;
-
 /** Far enough either side of a Bird to cover the Rope's reach and a tick's travel. */
 const NEAR = 12;
 
@@ -381,7 +378,7 @@ const NEAR = 12;
 const EPS = 1e-9;
 
 /** The highest ground surface under `x` at or below `y`, or null over a gap. A span's ends count as ground. */
-function groundBelow(near: Surroundings, x: number, y: number): number | null {
+function groundBelow(near: Layout, x: number, y: number): number | null {
   let best: number | null = null;
   for (const g of near.ground) {
     if (x >= g.from && x <= g.to && g.height <= y + EPS && (best === null || g.height > best)) best = g.height;
@@ -390,12 +387,12 @@ function groundBelow(near: Surroundings, x: number, y: number): number | null {
 }
 
 /** The surface at `x`: the highest ground there. */
-function surfaceAt(near: Surroundings, x: number): number {
+function surfaceAt(near: Layout, x: number): number {
   return groundBelow(near, x, Infinity) ?? 0;
 }
 
 /** The lowest ceiling over `x` at or above `head`, or null if there is none. */
-function ceilingAbove(near: Surroundings, x: number, head: number): number | null {
+function ceilingAbove(near: Layout, x: number, head: number): number | null {
   let best: number | null = null;
   for (const c of near.ceilings) {
     if (x > c.from && x < c.to && c.height >= head - EPS && (best === null || c.height < best)) best = c.height;
@@ -404,7 +401,7 @@ function ceilingAbove(near: Surroundings, x: number, head: number): number | nul
 }
 
 /** Ground or a ceiling that a Bird with its feet at `x`, `y` would be inside. */
-function solidAt(near: Surroundings, x: number, y: number): Span | undefined {
+function solidAt(near: Layout, x: number, y: number): Span | undefined {
   return (
     near.ground.find((g) => x > g.from && x < g.to && y < g.height - EPS) ??
     near.ceilings.find((c) => x > c.from && x < c.to && y + PHYSICS.birdHeight > c.height + EPS)
@@ -423,7 +420,7 @@ function edgeFacing(solid: Span, fromX: number): number {
  * against a wall by a Rope tied to `anchor` on the ground, the Rope drags it up the wall,
  * and over the lip once the Rope is too short to reach down.
  */
-function keepOutOfWalls(b: BirdState, near: Surroundings, anchor?: BirdState, length = 0) {
+function keepOutOfWalls(b: BirdState, near: Layout, anchor?: BirdState, length = 0) {
   if (b.y >= 0) return;
   const gap = nearestGap(near, b.x);
   if (!gap) return;
@@ -451,7 +448,7 @@ interface Gap {
  * The gap nearest `x`: the stretches between the ground spans nearby. A pit's floor (ground below
  * ground level) doesn't close the gap above it: the pit's sides are its walls.
  */
-function nearestGap(near: Surroundings, x: number): Gap | undefined {
+function nearestGap(near: Layout, x: number): Gap | undefined {
   const spans = near.ground.filter((s) => s.height >= 0).sort((a, b) => a.from - b.from);
   let best: Gap | undefined;
   let bestDist = Infinity;
