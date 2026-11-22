@@ -4,11 +4,13 @@ import {
   TICK_MS,
   chatText,
   initialWorld,
+  partnerOf,
   stepWorld,
   type Bird,
   type ClientMessage,
   type PerBird,
   type ServerMessage,
+  voiceSignal,
   type WorldState,
 } from "@tbob/shared";
 
@@ -135,6 +137,12 @@ export function createRoomRegistry(deps: { scheduler: Scheduler; makeCode?: () =
             case "calibrated":
               room.calibrated[bird] = msg.value === true;
               break;
+            case "signal": {
+              const signal = voiceSignal(msg.signal);
+              const partner = room.players[partnerOf(bird)];
+              if (signal && partner) partner.send({ type: "signal", signal });
+              break;
+            }
             case "chat": {
               const text = chatText(msg.text);
               if (text) broadcast(room, { type: "chat", bird, text });

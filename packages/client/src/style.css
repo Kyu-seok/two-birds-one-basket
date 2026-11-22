@@ -46,3 +46,10 @@ canvas { display: block; width: 100vw; height: 100vh; }
   font: inherit; padding: 8px 12px; border-radius: 999px; border: 1px solid #0002; background: #fdf6eccc;
 }
 #chat-input:focus { background: var(--paper); outline: 2px solid var(--accent-2); }
+#voice-status {
+  position: fixed; right: 16px; bottom: 16px; margin: 0; padding: 6px 12px;
+  background: #fdf6eccc; border-radius: 999px; font-size: 14px;
+}
+#voice-status[hidden] { display: none; }
+#voice-status[data-status="unavailable"] { color: #b33; }
+.hint { font-size: 14px; opacity: 0.8; }

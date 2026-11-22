@@ -5,6 +5,7 @@ import {
   TICK_MS,
   calibratedRange,
   loudnessToThrust,
+  partnerOf,
   type Bird,
   type Calibration,
   type ServerMessage,
@@ -16,6 +17,7 @@ import { KEYS_MODE, keyboardThrust } from "./keys.ts";
 import { openMic, type Mic } from "./mic.ts";
 import { createRoom, joinRoom, type RoomSocket } from "./net.ts";
 import { createRenderer } from "./render.ts";
+import { startVoice, type VoiceLink } from "./voice.ts";
 
 const panel = document.getElementById("panel")!;
 const panelBody = document.getElementById("panel-body")!;
@@ -28,6 +30,9 @@ function showPanel(html: string) {
   panelBody.innerHTML = html;
 }
 
+/** Without headphones the partner's voice from speakers can leak into your mic. */
+const HEADPHONES_HINT = `<p class="hint">Headphones recommended: you'll hear your partner's voice.</p>`;
+
 function roomLink(code: string) {
   return `${location.origin}/?room=${code}`;
 }
@@ -39,6 +44,7 @@ function landing() {
   if (code) {
     showPanel(`<p>Join Room <span class="code">${code}</span></p>
       <p>Talk to walk your Bird; get louder to jump. No need to shout.</p>
+      ${HEADPHONES_HINT}
       <button id="enter">Join with mic</button>`);
     document.getElementById("enter")!.onclick = () => enter(code);
     return;
@@ -51,6 +57,7 @@ function landing() {
       showPanel(`<p>Room Code</p><p class="code">${code}</p>
         <p>Send your partner this link:</p>
         <input class="link" readonly value="${roomLink(code)}" onclick="this.select()" />
+        ${HEADPHONES_HINT}
         <p><button id="enter">Enter with mic</button></p>`);
       document.getElementById("enter")!.onclick = () => enter(code);
     } catch (e) {
@@ -69,6 +76,7 @@ async function enter(roomCode: string) {
   }
 
   let myBird: Bird | null = null;
+  let voice: VoiceLink | null = null;
   /** Seconds left to show the Fallen banner. */
   let fallenBanner = 0;
   let distance = 0;
@@ -84,6 +92,7 @@ async function enter(roomCode: string) {
         case "joined":
           myBird = msg.bird;
           chat = setupChat((text) => socket?.send({ type: "chat", text }));
+          voice = startVoice(msg.bird, mic.stream ?? null, (signal) => socket?.send({ type: "signal", signal }));
           panel.hidden = true;
           canvas.hidden = false;
           start();
@@ -110,13 +119,18 @@ async function enter(roomCode: string) {
         case "chat":
           chat?.show(msg.bird, msg.text);
           break;
+        case "signal":
+          voice?.receive(msg.signal);
+          break;
         case "state":
           prev = latest;
           latest = { msg, at: performance.now() };
+          if (myBird) voice?.partnerPresent(msg.present[partnerOf(myBird)]);
           break;
       }
     },
     () => {
+      voice?.close();
       if (myBird) showPanel(`<p class="error">Disconnected from the server.</p><button onclick="location.reload()">Rejoin</button>`);
     },
   );
