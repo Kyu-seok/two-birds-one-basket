@@ -17,3 +17,10 @@ button:hover { filter: brightness(1.05); }
 .link { width: 100%; box-sizing: border-box; font: inherit; padding: 8px; border-radius: 8px; border: 1px solid #ccc; }
 .error { color: #b33; }
 canvas { display: block; width: 100vw; height: 100vh; }
+#sensitivity {
+  position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+  background: #fdf6eccc; border-radius: 999px; font-size: 14px;
+}
+#sensitivity[hidden] { display: none; }
+#sensitivity output { min-width: 1.5em; text-align: right; font-weight: 600; }

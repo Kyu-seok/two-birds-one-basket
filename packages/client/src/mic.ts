@@ -3,9 +3,13 @@
  * Bird react the same frame they make noise.
  */
 export interface Mic {
-  /** RMS of the latest audio frame, 0..1. */
+  /** Smoothed RMS of the mic signal, 0..1. */
   loudness(): number;
 }
+
+/** Smoothing time constants: rise quickly when a voice starts, fall a little slower so a held note reads as steady. */
+const RISE_SECONDS = 0.05;
+const FALL_SECONDS = 0.15;
 
 export async function openMic(): Promise<Mic> {
   const stream = await navigator.mediaDevices.getUserMedia({
@@ -17,12 +21,23 @@ export async function openMic(): Promise<Mic> {
   ctx.createMediaStreamSource(stream).connect(analyser);
   const buf = new Float32Array(analyser.fftSize);
 
+  let smoothed = 0;
+  let lastRead = performance.now();
+
   return {
     loudness() {
       analyser.getFloatTimeDomainData(buf);
       let sum = 0;
       for (const v of buf) sum += v * v;
-      return Math.sqrt(sum / buf.length);
+      const raw = Math.sqrt(sum / buf.length);
+
+      // Time-based, so it behaves the same whether read by the frame loop or the send loop.
+      const now = performance.now();
+      const dt = (now - lastRead) / 1000;
+      lastRead = now;
+      const tau = raw > smoothed ? RISE_SECONDS : FALL_SECONDS;
+      smoothed += (raw - smoothed) * (1 - Math.exp(-dt / tau));
+      return smoothed;
     },
   };
 }

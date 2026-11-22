@@ -1,6 +1,10 @@
 import {
+  SENSITIVITY_DEFAULT,
+  SENSITIVITY_MAX,
+  SENSITIVITY_MIN,
   TICK_MS,
   loudnessToThrust,
+  rangeForSensitivity,
   type BasketState,
   type ServerMessage,
   type Side,
@@ -109,10 +113,12 @@ async function enter(roomCode: string) {
     addEventListener("keydown", (e) => e.code === "Space" && (boost = true));
     addEventListener("keyup", (e) => e.code === "Space" && (boost = false));
 
+    const sensitivity = setupSensitivity();
+
     const currentThrust = () => {
       // A hidden tab's frame loop pauses; send silence rather than a stale value.
       if (document.hidden) return 0;
-      return boost ? 1 : loudnessToThrust(mic.loudness());
+      return boost ? 1 : loudnessToThrust(mic.loudness(), rangeForSensitivity(sensitivity.value()));
     };
 
     setInterval(() => socket?.send({ type: "thrust", value: currentThrust() }), TICK_MS);
@@ -148,6 +154,42 @@ async function enter(roomCode: string) {
     };
     requestAnimationFrame(frame);
   }
+}
+
+const SENSITIVITY_KEY = "tbob.sensitivity";
+
+/** The in-game Sensitivity slider; the choice is remembered in this browser. */
+function setupSensitivity() {
+  const label = document.getElementById("sensitivity")!;
+  const input = document.getElementById("sensitivity-input") as HTMLInputElement;
+  const output = document.getElementById("sensitivity-value") as HTMLOutputElement;
+
+  let value = SENSITIVITY_DEFAULT;
+  try {
+    const saved = Number(localStorage.getItem(SENSITIVITY_KEY));
+    if (saved >= SENSITIVITY_MIN && saved <= SENSITIVITY_MAX) value = saved;
+  } catch {
+    // Storage blocked: keep the default.
+  }
+
+  input.min = String(SENSITIVITY_MIN);
+  input.max = String(SENSITIVITY_MAX);
+  input.value = String(value);
+  output.value = String(value);
+  input.oninput = () => {
+    value = Number(input.value);
+    output.value = input.value;
+    try {
+      localStorage.setItem(SENSITIVITY_KEY, input.value);
+    } catch {
+      // Storage blocked: the setting lasts for this page only.
+    }
+  };
+  // Let Space keep working as the test boost after the slider is used.
+  input.onchange = () => input.blur();
+  label.hidden = false;
+
+  return { value: () => value };
 }
 
 /** Smooths between the last two server states, rendering one tick behind the newest. */

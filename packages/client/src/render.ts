@@ -1,4 +1,4 @@
-import { SIDES, type BasketState, type PerSide, type Side } from "@tbob/shared";
+import { SIDES, loudnessToDb, type BasketState, type PerSide, type Side } from "@tbob/shared";
 
 const PX_PER_M = 40;
 const BASKET_W = 2;
@@ -179,7 +179,7 @@ function drawHud(ctx: CanvasRenderingContext2D, f: Frame, w: number, h: number) 
   ctx.fillText(pingText("left"), w - 16, 24);
   ctx.fillText(pingText("right"), w - 16, 44);
 
-  // Own Loudness meter: filled to the Thrust it gives, with the raw Loudness printed below.
+  // Own Loudness meter: filled to the Thrust it gives, with Loudness (dB) and Thrust printed below.
   const mx = f.mySide === "left" ? 16 : w - 36;
   const mh = Math.min(200, h * 0.4);
   const my = h - 24 - mh;
@@ -193,5 +193,9 @@ function drawHud(ctx: CanvasRenderingContext2D, f: Frame, w: number, h: number) 
   ctx.textAlign = f.mySide === "left" ? "left" : "right";
   ctx.fillStyle = COLORS.ink;
   ctx.font = "12px system-ui";
-  ctx.fillText(`Loudness ${f.myLoudness.toFixed(3)}`, f.mySide === "left" ? 16 : w - 16, h - 8);
+  ctx.fillText(
+    `Loudness ${loudnessToDb(f.myLoudness).toFixed(0)} dB · Thrust ${fill.toFixed(2)}`,
+    f.mySide === "left" ? 16 : w - 16,
+    h - 8,
+  );
 }
