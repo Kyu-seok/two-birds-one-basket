@@ -9,6 +9,7 @@ import {
   type ServerMessage,
   type WorldState,
 } from "@tbob/shared";
+import { setupChat } from "./chat.ts";
 import { KEYS_MODE, keyboardThrust } from "./keys.ts";
 import { openMic, type Mic } from "./mic.ts";
 import { createRoom, joinRoom, type RoomSocket } from "./net.ts";
@@ -72,6 +73,7 @@ async function enter(roomCode: string) {
   let prev: { msg: StateMsg; at: number } | null = null;
   let latest: { msg: StateMsg; at: number } | null = null;
   let socket: RoomSocket | null = null;
+  let chat: ReturnType<typeof setupChat> | null = null;
 
   socket = joinRoom(
     roomCode,
@@ -79,6 +81,7 @@ async function enter(roomCode: string) {
       switch (msg.type) {
         case "joined":
           myBird = msg.bird;
+          chat = setupChat((text) => socket?.send({ type: "chat", text }));
           panel.hidden = true;
           canvas.hidden = false;
           start();
@@ -101,6 +104,9 @@ async function enter(roomCode: string) {
           latest = null;
           fallenBanner = 2;
           distance = 0;
+          break;
+        case "chat":
+          chat?.show(msg.bird, msg.text);
           break;
         case "state":
           prev = latest;
