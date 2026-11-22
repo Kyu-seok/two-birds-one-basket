@@ -12,7 +12,12 @@
  *   npm run bot -- [ABCDE] --thrust 0.4 [--seconds 10]
  * holds that Thrust, presses Ready (and Again after each Run) by itself, prints the state
  * once a second on its own line, and quits after --seconds if given.
+ *
+ * `--browser ID` (8-64 letters, digits or dashes) joins as that Browser ID, so two bots run
+ * again with the same IDs are recognised as the same Team; `--team NAME` names a new Team at
+ * the first Run End. Without --browser each bot is a new browser.
  */
+import { randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
 import { WebSocket } from "ws";
 import { TICK_MS, isReady, type Bird, type BirdState, type RunState, type ServerMessage } from "@tbob/shared";
@@ -23,7 +28,12 @@ const CLIENT = process.env.CLIENT ?? "http://localhost:5173";
 async function main() {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
-    options: { thrust: { type: "string" }, seconds: { type: "string" } },
+    options: {
+      thrust: { type: "string" },
+      seconds: { type: "string" },
+      browser: { type: "string" },
+      team: { type: "string" },
+    },
   });
   const scripted = values.thrust !== undefined;
   let roomCode = positionals[0]?.toUpperCase();
@@ -33,7 +43,8 @@ async function main() {
     console.log(`Created Room ${roomCode}. Open this in your browser:\n  ${CLIENT}/?room=${roomCode}\n`);
   }
 
-  const ws = new WebSocket(`${SERVER.replace(/^http/, "ws")}/ws?room=${roomCode}`);
+  const browser = values.browser ?? `bot-${randomUUID()}`;
+  const ws = new WebSocket(`${SERVER.replace(/^http/, "ws")}/ws?room=${roomCode}&browser=${encodeURIComponent(browser)}`);
   let thrust = scripted ? Math.min(1, Math.max(0, Number(values.thrust) || 0)) : 0;
   let wave = false;
   let status = "";
@@ -64,6 +75,18 @@ async function main() {
       case "chat":
         console.log(`\n[chat] ${msg.bird}: ${msg.text}`);
         break;
+      case "scores": {
+        const best = Math.max(0, ...msg.history.map((r) => r.distance));
+        const top = msg.top10.map((r) => `${r.team.name} ${r.distance.toFixed(1)}`).join(", ");
+        console.log(
+          `\n[scores] Team ${msg.team ? `"${msg.team.name}"` : msg.canNameTeam ? "(none yet, can name one)" : "(none)"} | ` +
+            `${msg.history.length} Runs, best ${best.toFixed(1)} m | Top 10: ${top || "empty"}`,
+        );
+        if (values.team && msg.canNameTeam && msg.history.length > 0) {
+          ws.send(JSON.stringify({ type: "nameTeam", name: values.team }));
+        }
+        break;
+      }
       case "state": {
         if (msg.run.phase !== run?.phase) console.log(`\n${describeRun(msg.run)}`);
         run = msg.run;
