@@ -1,41 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { initialWorld, type ServerMessage } from "@tbob/shared";
-import { createRoomRegistry, type Connection, type Scheduler } from "./rooms.ts";
-
-class FakeConnection implements Connection {
-  messages: ServerMessage[] = [];
-  closed = false;
-  send(msg: ServerMessage) {
-    this.messages.push(msg);
-  }
-  close() {
-    this.closed = true;
-  }
-  last<T extends ServerMessage["type"]>(type: T) {
-    return this.messages.filter((m): m is Extract<ServerMessage, { type: T }> => m.type === type).at(-1);
-  }
-}
-
-class FakeScheduler implements Scheduler {
-  timers: { ms: number; fn: () => void; cancelled: boolean }[] = [];
-  every(ms: number, fn: () => void) {
-    const timer = { ms, fn, cancelled: false };
-    this.timers.push(timer);
-    return () => {
-      timer.cancelled = true;
-    };
-  }
-  /** Fires every live timer `n` times. */
-  fire(n = 1) {
-    for (let i = 0; i < n; i++) for (const t of this.timers) if (!t.cancelled) t.fn();
-  }
-}
-
-function setup() {
-  const scheduler = new FakeScheduler();
-  const rooms = createRoomRegistry({ scheduler });
-  return { scheduler, rooms };
-}
+import { FakeConnection, setup } from "./testing.ts";
 
 describe("RoomRegistry", () => {
   it("creates a Room whose Room Code a player can join, taking the pink Bird", () => {
