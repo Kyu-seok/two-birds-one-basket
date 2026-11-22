@@ -8,6 +8,7 @@
 
 - `npm run bot -- [ROOMCODE] --thrust 0.4 --seconds 10` plays one Bird at a fixed Thrust and prints the state each second. It presses Ready, and Again after each Run, by itself (interactively, `r` does). Without a Room Code it creates a Room and prints its link.
 - Open the client link with `&keys` added (`http://localhost:5173/?room=ROOMCODE&keys`) to play the other Bird with keys: 0-9 set Thrust 0.0-0.9, `f` is full. Click Ready (or Again on the Run End screen) to start a Run.
+- Bots with no Team (or a Team on its first Run) play the Opening first, then the random Pieces.
 - Two scripted bots in one Room play Runs on their own on a random Course: at `--thrust 0.7` they hop along until they fall, the Run ends as Fallen, and they start the next. (A walking Thrust stalls at the first step.)
 - Teams: give each bot a fixed `--browser ID` (e.g. `bot-ann-0001`) and one of them `--team NAME`; they name a Team at the first Run End and are recognised in later Rooms. Each prints a `[scores]` line (Team, Team History, Top 10). The server keeps scores in SQLite at `DB_PATH` (default `packages/server/data/scores.db`, gitignored).
 
