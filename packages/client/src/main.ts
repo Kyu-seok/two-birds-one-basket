@@ -16,6 +16,7 @@ import { KEYS_MODE, keyboardThrust } from "./keys.ts";
 import { openMic, type Mic } from "./mic.ts";
 import { createRoom, joinRoom, type RoomSocket } from "./net.ts";
 import { createRenderer } from "./render.ts";
+import { setupRunScreen } from "./run.ts";
 
 const panel = document.getElementById("panel")!;
 const panelBody = document.getElementById("panel-body")!;
@@ -69,9 +70,6 @@ async function enter(roomCode: string) {
   }
 
   let myBird: Bird | null = null;
-  /** Seconds left to show the Fallen banner. */
-  let fallenBanner = 0;
-  let distance = 0;
   let prev: { msg: StateMsg; at: number } | null = null;
   let latest: { msg: StateMsg; at: number } | null = null;
   let socket: RoomSocket | null = null;
@@ -100,18 +98,12 @@ async function enter(roomCode: string) {
           socket?.send({ type: "reportPing", ms: rtt });
           break;
         }
-        case "fallen":
-          // The Course reset: don't smooth the Birds back across the whole Course.
-          prev = null;
-          latest = null;
-          fallenBanner = 2;
-          distance = 0;
-          break;
         case "chat":
           chat?.show(msg.bird, msg.text);
           break;
         case "state":
-          prev = latest;
+          // A new Run puts the Birds back at the start: don't smooth them back across the Course.
+          prev = latest?.msg.run.phase === msg.run.phase ? latest : null;
           latest = { msg, at: performance.now() };
           break;
       }
@@ -132,6 +124,7 @@ async function enter(roomCode: string) {
     addEventListener("keyup", (e) => e.code === "Space" && (boost = false));
 
     const sensitivity = setupSensitivity();
+    const runScreen = setupRunScreen((value) => socket?.send({ type: "ready", value }));
     const keys = KEYS_MODE ? keyboardThrust() : null;
 
     // Until the player has calibrated (and while they redo it) their voice moves nothing.
@@ -181,23 +174,22 @@ async function enter(roomCode: string) {
       myLoudness = mic.loudness();
       const myThrust = currentThrust();
 
-      fallenBanner = Math.max(0, fallenBanner - dt);
-
       if (latest && myBird) {
         const world = prev ? interpolate(prev, latest, now) : latest.msg.world;
         const s = latest.msg;
-        // The Bird behind sets the Distance.
-        distance = Math.max(distance, Math.min(s.world.birds.pink.x, s.world.birds.blue.x));
+        const inRun = s.run.phase === "countdown" || s.run.phase === "running";
+        // Calibration waits until the Run is over.
+        if (!keys) recalibrate.hidden = inRun;
+        runScreen({ run: s.run, myBird, present: s.present, calibrated: s.calibrated, calibrating: !panel.hidden });
         draw({
           world,
-          distance,
+          run: s.run,
           thrust: { ...s.thrust, [myBird]: myThrust },
           present: s.present,
           myBird,
           myLoudness,
           pings: s.pings,
           roomCode,
-          fallenBanner,
           dt,
         });
       }

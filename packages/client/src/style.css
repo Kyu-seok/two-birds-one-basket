@@ -46,3 +46,14 @@ canvas { display: block; width: 100vw; height: 100vh; }
   font: inherit; padding: 8px 12px; border-radius: 999px; border: 1px solid #0002; background: #fdf6eccc;
 }
 #chat-input:focus { background: var(--paper); outline: 2px solid var(--accent-2); }
+#run {
+  position: absolute; inset: 0; margin: auto; width: min(360px, calc(100% - 32px)); height: fit-content;
+  background: var(--paper); border-radius: 16px; padding: 20px 24px; box-shadow: 0 8px 30px #0002;
+  text-align: center;
+}
+#run[hidden] { display: none; }
+#run h2 { margin: 0 0 8px; font-size: 1.3rem; }
+#run .distance { font-size: 2.4rem; font-weight: 700; margin: 8px 0; }
+#run .partner { font-size: 14px; opacity: 0.8; }
+#run button.pressed { background: var(--accent-2); }
+#run button:disabled { opacity: 0.5; cursor: default; }
