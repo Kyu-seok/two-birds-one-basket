@@ -8,6 +8,7 @@ import {
   layoutAt,
   loudnessToDb,
   runCourse,
+  wholeSecondsLeft,
   type Bird,
   type BirdState,
   type Course,
@@ -29,6 +30,8 @@ const ROPE_REST_Y = 0.04;
 
 /** Each Bird's colour, shared with anything else that marks a Bird (the chat). */
 export const BIRD_COLORS: PerBird<string> = { pink: "#f4a6a6", blue: "#8ec5f2" };
+/** Each Bird's name, as players see it. */
+export const BIRD_NAMES: PerBird<string> = { pink: "Pink", blue: "Blue" };
 
 const COLORS = {
   skyTop: "#a6d8f4",
@@ -51,7 +54,6 @@ const COLORS = {
   sign: "#fffaf0ee",
 };
 
-const NAME: PerBird<string> = { pink: "Pink", blue: "Blue" };
 
 export interface Frame {
   world: WorldState;
@@ -322,15 +324,15 @@ function drawHud(ctx: CanvasRenderingContext2D, f: Frame, w: number, h: number) 
   ctx.fillStyle = COLORS.ink;
   ctx.font = "14px system-ui";
   ctx.textAlign = "left";
-  ctx.fillText(`Room ${f.roomCode} · you are ${NAME[f.myBird]}`, 16, 24);
+  ctx.fillText(`Room ${f.roomCode} · you are ${BIRD_NAMES[f.myBird]}`, 16, 24);
   if ("distance" in f.run) ctx.fillText(`Distance ${f.run.distance.toFixed(1)} m`, 16, 44);
   ctx.fillText("Hold Space for full Thrust (test)", 16, 64);
 
   const pingText = (bird: Bird) => {
     const you = bird === f.myBird ? " (you)" : "";
-    if (!f.present[bird]) return `${NAME[bird]}${you}: waiting…`;
+    if (!f.present[bird]) return `${BIRD_NAMES[bird]}${you}: waiting…`;
     const ms = f.pings[bird];
-    return `${NAME[bird]}${you}: ${ms === null ? "–" : `${ms} ms`}`;
+    return `${BIRD_NAMES[bird]}${you}: ${ms === null ? "–" : `${ms} ms`}`;
   };
   ctx.textAlign = "right";
   BIRDS.forEach((bird, i) => {
@@ -342,7 +344,7 @@ function drawHud(ctx: CanvasRenderingContext2D, f: Frame, w: number, h: number) 
 
   if (f.run.phase === "countdown") {
     // 3, 2, 1, each shrinking and fading through its second.
-    const n = Math.ceil(f.run.secondsLeft - 1e-6);
+    const n = wholeSecondsLeft(f.run.secondsLeft);
     const through = n - f.run.secondsLeft;
     ctx.textAlign = "center";
     ctx.font = `bold ${Math.round(96 - 32 * through)}px system-ui`;

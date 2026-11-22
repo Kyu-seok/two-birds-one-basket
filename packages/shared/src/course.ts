@@ -94,9 +94,14 @@ export function courseOf(ground: readonly Span[], ceilings: readonly Span[] = []
   return fixedCourse([{ x, piece: { name: "test", tier: "easy", length: end - x, ground: ground.map(shift), ceilings: ceilings.map(shift) } }]);
 }
 
+/** The placed Pieces overlapping `from`..`to`. */
+function overlapping(placed: readonly PlacedPiece[], from: number, to: number): PlacedPiece[] {
+  return placed.filter((p) => p.x <= to && p.x + p.piece.length >= from);
+}
+
 /** A Course of a fixed list of placed Pieces, its Distance counted from `distanceFrom`. */
 export function fixedCourse(placed: readonly PlacedPiece[], distanceFrom = 0): Course {
-  return { piecesBetween: (from, to) => placed.filter((p) => p.x <= to && p.x + p.piece.length >= from), distanceFrom };
+  return { piecesBetween: (from, to) => overlapping(placed, from, to), distanceFrom };
 }
 
 const flat = (name: string, length: number): Piece => ({
@@ -237,7 +242,7 @@ export function randomCourse(seed: number, catalog: readonly Piece[] = PIECES, f
         const x = end();
         placed.push({ x, piece: nextPiece(random, x - distanceFrom, catalog) });
       }
-      return placed.filter((p) => p.x <= to && p.x + p.piece.length >= from);
+      return overlapping(placed, from, to);
     },
   };
 }

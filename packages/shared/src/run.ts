@@ -44,6 +44,14 @@ export const RECONNECT_SECONDS = 30;
 
 const NOBODY_READY: PerBird<boolean> = { pink: false, blue: false };
 
+/**
+ * A countdown's seconds left as players see it: 3, 2, 1, then 0 when it is up. A little slack
+ * keeps float error in the tick length from costing a whole extra tick.
+ */
+export function wholeSecondsLeft(secondsLeft: number): number {
+  return Math.ceil(secondsLeft - 1e-6);
+}
+
 /** A Room before its first Run: nobody Ready yet. */
 export function newRoomRun(): RunState {
   return { phase: "waiting", ready: { ...NOBODY_READY } };
@@ -129,8 +137,7 @@ export function stepRun(
     case "countdown": {
       const { seed, opening } = run;
       const secondsLeft = run.secondsLeft - dt;
-      // A little slack so float error in dt doesn't cost a whole extra tick.
-      if (secondsLeft <= 1e-6) return { run: { phase: "running", seed, opening, distance: 0 }, world };
+      if (wholeSecondsLeft(secondsLeft) <= 0) return { run: { phase: "running", seed, opening, distance: 0 }, world };
       return { run: { phase: "countdown", seed, opening, secondsLeft }, world };
     }
     case "running": {
@@ -146,7 +153,7 @@ export function stepRun(
     case "paused": {
       const { seed, opening, distance, dropped } = run;
       const secondsLeft = run.secondsLeft - dt;
-      if (secondsLeft <= 1e-6) {
+      if (wholeSecondsLeft(secondsLeft) <= 0) {
         return { run: { phase: "ended", seed, opening, end: "abandoned", dropped, distance, ready: { ...NOBODY_READY } }, world };
       }
       return { run: { ...run, secondsLeft }, world };

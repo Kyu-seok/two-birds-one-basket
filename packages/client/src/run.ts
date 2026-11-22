@@ -1,6 +1,7 @@
 import {
   TEAM_NAME_MAX_LENGTH,
   isReady,
+  wholeSecondsLeft,
   partnerOf,
   type Bird,
   type PerBird,
@@ -9,10 +10,10 @@ import {
   type ServerMessage,
   type StoredRun,
 } from "@tbob/shared";
+import { BIRD_NAMES } from "./render.ts";
 
 export type Scores = Omit<Extract<ServerMessage, { type: "scores" }>, "type">;
 
-const NAME: PerBird<string> = { pink: "Pink", blue: "Blue" };
 const RUN_END_WORD: Record<RunEndReason, string> = { fallen: "Fallen", abandoned: "Abandoned" };
 
 export interface RunView {
@@ -131,6 +132,11 @@ function teamSection(scores: Scores | null): string {
   return `${naming}${historyTable(scores.history)}${topTable(scores)}`;
 }
 
+/** A toggle button that is pressed, and says so. */
+function pressedButton(kind: string, label: string): string {
+  return `<button class="${kind} pressed">${label} ✓ (press to take back)</button>`;
+}
+
 /**
  * Whether the next Run starts with the Opening, and the button to replay it. A known Team that
  * has finished a Run skips it unless a player asks; everyone else gets it.
@@ -139,7 +145,7 @@ function openingLine(scores: Scores | null, replay: boolean): string {
   const skips = !!scores?.team && scores.history.length > 0;
   if (!skips) return `<p class="opening">The Run starts with the Opening, to learn the controls.</p>`;
   return replay
-    ? `<p class="opening"><button class="replay pressed">Replay the Opening ✓ (press to take back)</button></p>`
+    ? `<p class="opening">${pressedButton("replay", "Replay the Opening")}</p>`
     : `<p class="opening"><button class="replay">Replay the Opening</button></p>`;
 }
 
@@ -156,21 +162,21 @@ function render({ run, myBird, present, calibrated, scores, replayOpening }: Run
   const partner = partnerOf(myBird);
   if (run.phase === "paused") {
     return `<h2>Paused</h2>
-      <p>${NAME[run.dropped]} dropped. Waiting for them to come back…</p>
-      <p class="distance">${Math.ceil(run.secondsLeft - 1e-6)}</p>
+      <p>${BIRD_NAMES[run.dropped]} dropped. Waiting for them to come back…</p>
+      <p class="distance">${wholeSecondsLeft(run.secondsLeft)}</p>
       <p class="partner">If they don't reopen the link in time, the Run ends as Abandoned at ${run.distance.toFixed(1)} m.</p>`;
   }
   const mine = isReady(run, myBird);
   const label = run.phase === "ended" ? "Again" : "Ready";
 
   let partnerLine: string;
-  if (!present[partner]) partnerLine = `Waiting for ${NAME[partner]} to join…`;
-  else if (isReady(run, partner)) partnerLine = `${NAME[partner]} pressed ${label}.`;
-  else if (!calibrated[partner]) partnerLine = `${NAME[partner]} is calibrating…`;
-  else partnerLine = `Waiting for ${NAME[partner]} to press ${label}…`;
+  if (!present[partner]) partnerLine = `Waiting for ${BIRD_NAMES[partner]} to join…`;
+  else if (isReady(run, partner)) partnerLine = `${BIRD_NAMES[partner]} pressed ${label}.`;
+  else if (!calibrated[partner]) partnerLine = `${BIRD_NAMES[partner]} is calibrating…`;
+  else partnerLine = `Waiting for ${BIRD_NAMES[partner]} to press ${label}…`;
 
   const button = mine
-    ? `<button class="ready pressed">${label} ✓ (press to take back)</button>`
+    ? pressedButton("ready", label)
     : `<button class="ready"${calibrated[myBird] ? "" : " disabled"}>${label}</button>`;
 
   const team = scores?.team ? escapeHtml(scores.team.name) : null;

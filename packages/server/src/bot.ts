@@ -20,7 +20,7 @@
 import { randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
 import { WebSocket } from "ws";
-import { TICK_MS, isReady, type Bird, type BirdState, type RunState, type ServerMessage } from "@tbob/shared";
+import { TICK_MS, isReady, type Bird, type BirdState, type RunState, type ServerMessage, wholeSecondsLeft } from "@tbob/shared";
 
 const SERVER = process.env.SERVER ?? "http://localhost:8100";
 const CLIENT = process.env.CLIENT ?? "http://localhost:5173";
@@ -147,11 +147,11 @@ function describeRun(run: RunState): string {
     case "waiting":
       return `Waiting: ${ready(run.ready)}`;
     case "countdown":
-      return `Countdown ${Math.ceil(run.secondsLeft)}`;
+      return `Countdown ${wholeSecondsLeft(run.secondsLeft)}`;
     case "running":
       return `Run: Distance ${run.distance.toFixed(1)} m`;
     case "paused":
-      return `Paused: ${run.dropped} dropped, ${Math.ceil(run.secondsLeft)} s to come back; Distance ${run.distance.toFixed(1)} m`;
+      return `Paused: ${run.dropped} dropped, ${wholeSecondsLeft(run.secondsLeft)} s to come back; Distance ${run.distance.toFixed(1)} m`;
     case "ended":
       return `Run End (${run.end}): Distance ${run.distance.toFixed(1)} m; Again: ${ready(run.ready)}`;
   }
