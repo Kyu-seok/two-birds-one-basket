@@ -4,11 +4,15 @@ import {
   OPENING,
   OPENING_HINTS,
   PHYSICS,
+  isBlowing,
+  layoutAt,
   loudnessToDb,
   runCourse,
   type Bird,
   type BirdState,
   type Course,
+  type Crumbling,
+  type Layout,
   type PerBird,
   type Span,
   type RunState,
@@ -34,6 +38,11 @@ const COLORS = {
   gap: "#3d3a4bcc",
   ceiling: "#9a8f9e",
   ceilingEdge: "#7a6f80",
+  crumble: "#e2c99a",
+  crumbleEdge: "#c4a46a",
+  moving: "#c9d8ee",
+  movingEdge: "#8fa8cc",
+  gust: "#ffffffcc",
   grid: "#3d3a4b22",
   rope: "#8a5a32",
   bird: BIRD_COLORS,
@@ -107,8 +116,8 @@ export function createRenderer(canvas: HTMLCanvasElement) {
       ctx.fillText(`${m} m`, sx(m) + 4, sy(0) - 6);
     }
 
-    const near = spansBetween(course, left, right);
-    drawCourse(ctx, sx, sy, near, left, right, h);
+    const near = layoutAt(course, left, right, f.world.time, f.world.crumbling);
+    drawCourse(ctx, sx, sy, near, left, right, h, f.world.time, f.world.crumbling);
     drawHints(ctx, sx, sy, course, left, right);
     drawRope(ctx, sx, sy, pink, blue, f.world.ropeLength, near.ground);
     for (const bird of BIRDS) {
@@ -124,27 +133,20 @@ export function createRenderer(canvas: HTMLCanvasElement) {
   };
 }
 
-/** The ground and ceilings of the Pieces in view, in Course coordinates. */
-function spansBetween(course: Course, left: number, right: number) {
-  const ground: Span[] = [];
-  const ceilings: Span[] = [];
-  for (const { x, piece } of course.piecesBetween(left, right)) {
-    const place = (s: Span) => ({ from: x + s.from, to: x + s.to, height: s.height });
-    ground.push(...piece.ground.map(place));
-    ceilings.push(...piece.ceilings.map(place));
-  }
-  return { ground, ceilings };
-}
-
-/** The Course from the same Piece data the server collides with: ground, gaps and low ceilings. */
+/**
+ * The Course from the same Piece data and Run clock the server collides with: ground, gaps, low
+ * ceilings, and the timed hazards where they are now.
+ */
 function drawCourse(
   ctx: CanvasRenderingContext2D,
   sx: (x: number) => number,
   sy: (y: number) => number,
-  near: { ground: Span[]; ceilings: Span[] },
+  near: Layout,
   left: number,
   right: number,
   h: number,
+  time: number,
+  crumbling: Crumbling,
 ) {
   // Behind everything, below ground level, the gaps: open sky fading to dark.
   const top = sy(0);
@@ -158,10 +160,18 @@ function drawCourse(
   for (const g of near.ground) {
     const y = sy(g.height);
     if (y >= h) continue;
-    ctx.fillStyle = COLORS.ground;
-    ctx.fillRect(sx(g.from), y, sx(g.to) - sx(g.from), h - y);
-    ctx.fillStyle = COLORS.groundEdge;
-    ctx.fillRect(sx(g.from), y, sx(g.to) - sx(g.from), 4);
+    const [fill, edge] = g.crumble
+      ? [COLORS.crumble, COLORS.crumbleEdge]
+      : g.move
+        ? [COLORS.moving, COLORS.movingEdge]
+        : [COLORS.ground, COLORS.groundEdge];
+    // A crumbling platform that's been stood on shakes harder as it is about to give way.
+    const touched = crumbling[g.key];
+    const shake = g.crumble && touched !== undefined ? Math.sin(time * 60) * 2 * Math.min(1, (time - touched) / g.crumble.holdSeconds) : 0;
+    ctx.fillStyle = fill;
+    ctx.fillRect(sx(g.from) + shake, y, sx(g.to) - sx(g.from), h - y);
+    ctx.fillStyle = edge;
+    ctx.fillRect(sx(g.from) + shake, y, sx(g.to) - sx(g.from), 4);
   }
   for (const c of near.ceilings) {
     const y = sy(c.height);
@@ -171,6 +181,34 @@ function drawCourse(
     ctx.fillStyle = COLORS.ceilingEdge;
     ctx.fillRect(sx(c.from), y - 4, sx(c.to) - sx(c.from), 4);
   }
+  drawGusts(ctx, sx, sy, near, time);
+}
+
+/** How long before a gust a faint flurry warns of it. */
+const GUST_WARNING = 0.6;
+
+/** Streaks of wind over each blowing gust, drifting the way it blows; faint just before it starts. */
+function drawGusts(ctx: CanvasRenderingContext2D, sx: (x: number) => number, sy: (y: number) => number, near: Layout, time: number) {
+  ctx.strokeStyle = COLORS.gust;
+  ctx.lineCap = "round";
+  for (const g of near.gusts) {
+    const blowing = isBlowing(g, time);
+    if (!blowing && !isBlowing(g, time + GUST_WARNING)) continue;
+    ctx.globalAlpha = blowing ? 0.9 : 0.3;
+    ctx.lineWidth = blowing ? 3 : 2;
+    const width = g.to - g.from;
+    for (let i = 0; i < width * 2; i++) {
+      // Each streak drifts along at the gust's speed, wrapping round within the gust.
+      const along = ((i * 0.53 + time * g.push * 2) % width + width) % width;
+      const x = g.from + along;
+      const y = 0.4 + ((i * 0.37) % 1) * 2.2;
+      ctx.beginPath();
+      ctx.moveTo(sx(x), sy(y));
+      ctx.lineTo(sx(x + Math.sign(g.push) * 0.6), sy(y));
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
 }
 
 /** The Opening's hints, each a little sign standing on the ground by its teaching step. */

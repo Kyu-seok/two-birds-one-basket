@@ -290,7 +290,13 @@ function interpolate(
     x: lerp(p.birds[who].x, q.birds[who].x),
     y: lerp(p.birds[who].y, q.birds[who].y),
   });
-  return { ...q, birds: { pink: bird("pink"), blue: bird("blue") }, ropeLength: lerp(p.ropeLength, q.ropeLength) };
+  return {
+    ...q,
+    birds: { pink: bird("pink"), blue: bird("blue") },
+    ropeLength: lerp(p.ropeLength, q.ropeLength),
+    // The Run clock too, so moving platforms glide between ticks (it starts again at each new Run).
+    time: q.time >= p.time ? lerp(p.time, q.time) : q.time,
+  };
 }
 
 landing();
