@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { RECONNECT_SECONDS } from "@tbob/shared";
 import { FakeConnection, setup, startRun, type FakeScheduler } from "./testing.ts";
 import type { Player, RoomRegistry } from "./rooms.ts";
 
@@ -83,8 +84,10 @@ describe("Teams, Team History and Top 10 in a Room", () => {
     first.pink.receive({ type: "nameTeam", name: "Sky Pals" });
     const annAndBo = first.a.last("scores")!.team!;
     first.blue.disconnect();
+    // Bo's Bird is kept for Bo for a while.
+    scheduler.fire(30 * RECONNECT_SECONDS);
 
-    // Cy takes Bo's place in the same Room.
+    // Then Cy takes Bo's place in the same Room.
     const c = new FakeConnection();
     const cy = rooms.connect(first.a.last("joined")!.roomCode, c, CY)!;
     expect(c.last("scores")).toMatchObject({ team: null, canNameTeam: true });

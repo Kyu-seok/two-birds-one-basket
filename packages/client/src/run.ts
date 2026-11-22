@@ -4,6 +4,7 @@ import {
   partnerOf,
   type Bird,
   type PerBird,
+  type RunEndReason,
   type RunState,
   type ServerMessage,
   type StoredRun,
@@ -12,8 +13,11 @@ import {
 export type Scores = Omit<Extract<ServerMessage, { type: "scores" }>, "type">;
 
 const NAME: PerBird<string> = { pink: "Pink", blue: "Blue" };
-const RUN_END_TEXT = { fallen: "Fallen: both Birds dropped with nothing holding them." } as const;
-const RUN_END_WORD = { fallen: "Fallen" } as const;
+const RUN_END_TEXT: Record<RunEndReason, string> = {
+  fallen: "Fallen: both Birds dropped with nothing holding them.",
+  abandoned: "Abandoned: your partner left and didn't come back in time.",
+};
+const RUN_END_WORD: Record<RunEndReason, string> = { fallen: "Fallen", abandoned: "Abandoned" };
 
 export interface RunView {
   run: RunState;
@@ -27,8 +31,9 @@ export interface RunView {
 }
 
 /**
- * The screens around a Run: Ready before the first one, and the Run End screen with "Again".
- * During the countdown and the Run itself it is hidden; the canvas shows those.
+ * The screens around a Run: Ready before the first one, the reconnect countdown while the Run is
+ * paused for a dropped partner, and the Run End screen with "Again". During the countdown and
+ * the Run itself it is hidden; the canvas shows those.
  */
 export function setupRunScreen(sendReady: (value: boolean) => void, nameTeam: (name: string) => void) {
   const box = document.getElementById("run")!;
@@ -120,6 +125,12 @@ function teamSection(scores: Scores | null): string {
 function render({ run, myBird, present, calibrated, scores }: RunView): string {
   if (run.phase === "countdown" || run.phase === "running") return "";
   const partner = partnerOf(myBird);
+  if (run.phase === "paused") {
+    return `<h2>Paused</h2>
+      <p>${NAME[run.dropped]} dropped. Waiting for them to come back…</p>
+      <p class="distance">${Math.ceil(run.secondsLeft - 1e-6)}</p>
+      <p class="partner">If they don't reopen the link in time, the Run ends as Abandoned at ${run.distance.toFixed(1)} m.</p>`;
+  }
   const mine = isReady(run, myBird);
   const label = run.phase === "ended" ? "Again" : "Ready";
 

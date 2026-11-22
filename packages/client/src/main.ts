@@ -17,7 +17,7 @@ import { KEYS_MODE, keyboardThrust } from "./keys.ts";
 import { openMic, type Mic } from "./mic.ts";
 import { createRoom, joinRoom, type RoomSocket } from "./net.ts";
 import { createRenderer } from "./render.ts";
-import { loadBrowserId, rememberTeam } from "./identity.ts";
+import { loadBrowserId, rememberCalibration, rememberTeam, savedCalibration } from "./identity.ts";
 import { setupRunScreen, type Scores } from "./run.ts";
 import { startVoice, type VoiceLink } from "./voice.ts";
 
@@ -163,6 +163,7 @@ async function enter(roomCode: string) {
       recalibrate.disabled = true;
       panel.hidden = false;
       calibration = await runCalibration(mic, panelBody);
+      rememberCalibration(localStorage, roomCode, calibration);
       panel.hidden = true;
       recalibrate.disabled = false;
       socket?.send({ type: "calibrated", value: true });
@@ -176,7 +177,10 @@ async function enter(roomCode: string) {
         recalibrate.blur();
         void doCalibration();
       };
-      void doCalibration();
+      // Back in a Room after dropping out: the Calibration made here still holds.
+      calibration = savedCalibration(localStorage, roomCode);
+      if (calibration) socket?.send({ type: "calibrated", value: true });
+      else void doCalibration();
     }
 
     const currentThrust = () => {
@@ -204,7 +208,7 @@ async function enter(roomCode: string) {
       if (latest && myBird) {
         const world = prev ? interpolate(prev, latest, now) : latest.msg.world;
         const s = latest.msg;
-        const inRun = s.run.phase === "countdown" || s.run.phase === "running";
+        const inRun = s.run.phase === "countdown" || s.run.phase === "running" || s.run.phase === "paused";
         // Calibration waits until the Run is over.
         if (!keys) recalibrate.hidden = inRun;
         runScreen({ run: s.run, myBird, present: s.present, calibrated: s.calibrated, calibrating: !panel.hidden, scores });

@@ -88,13 +88,13 @@ export function startRun(scheduler: FakeScheduler, pink: Player, blue: Player) {
   scheduler.fire(COUNTDOWN_SECONDS * TICK_HZ);
 }
 
-/** A Room with both players in it and a Run under way. */
-export function runningRoom() {
-  const { scheduler, rooms } = setup();
+/** A Room with both players in it (from the given Browser IDs, if any) and a Run under way. */
+export function runningRoom(browsers: { pink?: string; blue?: string } = {}) {
+  const { scheduler, rooms, scores } = setup();
   const code = rooms.createRoom();
   const [a, b] = [new FakeConnection(), new FakeConnection()];
-  const pink = rooms.connect(code, a)!;
-  const blue = rooms.connect(code, b)!;
+  const pink = rooms.connect(code, a, browsers.pink)!;
+  const blue = rooms.connect(code, b, browsers.blue)!;
   startRun(scheduler, pink, blue);
-  return { scheduler, rooms, code, a, b, pink, blue };
+  return { scheduler, rooms, scores, code, a, b, pink, blue };
 }

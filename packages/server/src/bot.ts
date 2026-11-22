@@ -150,6 +150,8 @@ function describeRun(run: RunState): string {
       return `Countdown ${Math.ceil(run.secondsLeft)}`;
     case "running":
       return `Run: Distance ${run.distance.toFixed(1)} m`;
+    case "paused":
+      return `Paused: ${run.dropped} dropped, ${Math.ceil(run.secondsLeft)} s to come back; Distance ${run.distance.toFixed(1)} m`;
     case "ended":
       return `Run End (${run.end}): Distance ${run.distance.toFixed(1)} m; Again: ${ready(run.ready)}`;
   }
