@@ -16,7 +16,7 @@ import {
   partnerOf,
   type Bird,
   type ClientMessage,
-  type Course,
+  type CourseOf,
   type PerBird,
   type RunEndReason,
   type RunState,
@@ -88,6 +88,8 @@ interface Room {
   /** Which players have calibrated; it lasts for every Run while they stay in the Room. */
   calibrated: PerBird<boolean>;
   run: RunState;
+  /** A player asked for the next Run to start with the Opening again. */
+  replayOpening: boolean;
   tick: number;
   /** How many ticks the current Run has been running (pauses don't count), and the pair playing it; null outside a Run. */
   runStart: { ticks: number; pair: Pair | null } | null;
@@ -106,8 +108,8 @@ interface Deps {
   now?: () => number;
   /** A new Course seed, for each Run. */
   makeSeed?: () => number;
-  /** The Course for a seed. Tests swap in a fixed Course. */
-  courseOf?: (seed: number) => Course;
+  /** The Course for a seed, with or without the Opening. Tests swap in a fixed Course. */
+  courseOf?: CourseOf;
 }
 
 /** The Browser IDs of the two players in the Room, or null unless both are here and sent one. */
@@ -130,6 +132,16 @@ function sendScores(room: Room, scores: ScoreStore) {
   });
 }
 
+/**
+ * Whether a Run starting now plays the Opening: on a Team's first Run, for players with no Team
+ * yet, or when a player asked to replay it.
+ */
+function playsOpening(room: Room, scores: ScoreStore): boolean {
+  if (room.replayOpening) return true;
+  const pair = pairOf(room);
+  return !pair || !scores.teamOf(pair) || scores.history(pair).length === 0;
+}
+
 /** Lets anyone take a Bird its player has left, forgetting their Calibration. */
 function freeBird(room: Room, bird: Bird) {
   room.browsers[bird] = null;
@@ -147,12 +159,14 @@ function saveRun(room: Room, scores: ScoreStore, now: () => number, end: RunEndR
 
 function tick(room: Room, deps: Deps, scores: ScoreStore, now: () => number) {
   const before = room.run.phase;
-  const seed = (deps.makeSeed ?? newCourseSeed)();
+  const nextCourse = () => ({ seed: (deps.makeSeed ?? newCourseSeed)(), opening: playsOpening(room, scores) });
   const dt = TICK_MS / 1000;
-  const { run, world } = stepRun(room.run, room.world, room.thrust, dt, seed, deps.courseOf ?? courseForSeed);
+  const { run, world } = stepRun(room.run, room.world, room.thrust, dt, nextCourse, deps.courseOf ?? courseForSeed);
   room.run = run;
   room.world = world;
   room.tick++;
+  // A replay asked for is used up by the Run it starts.
+  if (before !== "countdown" && run.phase === "countdown") room.replayOpening = false;
   for (const bird of BIRDS) {
     const until = room.reservedUntil[bird];
     if (until !== null && room.tick >= until) freeBird(room, bird);
@@ -172,6 +186,7 @@ function tick(room: Room, deps: Deps, scores: ScoreStore, now: () => number) {
     present: { pink: !!room.players.pink, blue: !!room.players.blue },
     calibrated: { ...room.calibrated },
     run: room.run,
+    replayOpening: room.replayOpening,
   });
 }
 
@@ -195,6 +210,7 @@ export function createRoomRegistry(deps: Deps): RoomRegistry {
         pings: { pink: null, blue: null },
         calibrated: { pink: false, blue: false },
         run: newRoomRun(),
+        replayOpening: false,
         tick: 0,
         runStart: null,
         stopLoop: null,
@@ -239,6 +255,9 @@ export function createRoomRegistry(deps: Deps): RoomRegistry {
               break;
             case "ready":
               room.run = setReady(room.run, bird, msg.value === true && room.calibrated[bird]);
+              break;
+            case "replayOpening":
+              room.replayOpening = msg.value === true;
               break;
             case "signal": {
               const signal = voiceSignal(msg.signal);

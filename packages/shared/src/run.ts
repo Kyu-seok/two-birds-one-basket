@@ -18,15 +18,22 @@ export type RunEndReason = "fallen" | "abandoned";
  * same Ready press. The world only moves while `running`; `paused` freezes it with the Run's
  * Distance kept.
  *
- * Each Run has its own random Course, built from `seed` (see `runCourse`), picked when its
- * countdown starts. Both clients rebuild the same Course from it.
+ * Each Run has its own random Course, built from `seed` and starting with the Opening if
+ * `opening` (see `runCourse`), picked when its countdown starts. Both clients rebuild the same
+ * Course from them.
  */
 export type RunState =
   | { phase: "waiting"; ready: PerBird<boolean> }
-  | { phase: "countdown"; seed: number; secondsLeft: number }
-  | { phase: "running"; seed: number; distance: number }
-  | { phase: "paused"; seed: number; distance: number; dropped: Bird; secondsLeft: number }
-  | { phase: "ended"; seed: number; end: RunEndReason; distance: number; ready: PerBird<boolean> };
+  | ({ phase: "countdown"; secondsLeft: number } & RunCourse)
+  | ({ phase: "running"; distance: number } & RunCourse)
+  | ({ phase: "paused"; distance: number; dropped: Bird; secondsLeft: number } & RunCourse)
+  | ({ phase: "ended"; end: RunEndReason; distance: number; ready: PerBird<boolean> } & RunCourse);
+
+/** What a Run's Course is built from: its seed, and whether it starts with the Opening. */
+export interface RunCourse {
+  seed: number;
+  opening: boolean;
+}
 
 export const COUNTDOWN_SECONDS = 3;
 /** How long a dropped player has to reopen the link before the Run is Abandoned. */
@@ -57,14 +64,14 @@ export function setReady(run: RunState, bird: Bird, value: boolean): RunState {
 export function playerLeft(run: RunState, bird: Bird): RunState {
   if (run.phase === "countdown") return newRoomRun();
   if (run.phase === "running") {
-    return { phase: "paused", seed: run.seed, distance: run.distance, dropped: bird, secondsLeft: RECONNECT_SECONDS };
+    return { phase: "paused", seed: run.seed, opening: run.opening, distance: run.distance, dropped: bird, secondsLeft: RECONNECT_SECONDS };
   }
   return setReady(run, bird, false);
 }
 
 /** A player came back to their Bird: a Run paused for them resumes where it stopped. */
 export function playerReturned(run: RunState, bird: Bird): RunState {
-  if (run.phase === "paused" && run.dropped === bird) return { phase: "running", seed: run.seed, distance: run.distance };
+  if (run.phase === "paused" && run.dropped === bird) return { phase: "running", seed: run.seed, opening: run.opening, distance: run.distance };
   return run;
 }
 
@@ -76,22 +83,25 @@ export function distanceOf(world: WorldState): number {
 /** Before a Room's first Run there is no Course yet: just the start. */
 const START_ONLY = fixedCourse([{ x: -30, piece: START_PIECE }]);
 
+/** Builds a Run's Course from its seed, with or without the Opening. */
+export type CourseOf = (seed: number, opening: boolean) => Course;
+
 /** The Course a Run is on, the same on the server and both clients. */
-export function runCourse(run: RunState, courseOf: (seed: number) => Course = courseForSeed): Course {
-  return "seed" in run ? courseOf(run.seed) : START_ONLY;
+export function runCourse(run: RunState, courseOf: CourseOf = courseForSeed): Course {
+  return "seed" in run ? courseOf(run.seed, run.opening) : START_ONLY;
 }
 
 /**
- * Advances the Run, and the world within it, by one tick. Pure. `newSeed` is the Course seed for
- * a Run that starts this tick; `courseOf` builds a seed's Course.
+ * Advances the Run, and the world within it, by one tick. Pure. `nextCourse` picks the Course of
+ * a Run that starts this tick (it isn't called otherwise); `courseOf` builds it.
  */
 export function stepRun(
   run: RunState,
   world: WorldState,
   thrust: Thrusts,
   dt: number,
-  newSeed: number,
-  courseOf: (seed: number) => Course = courseForSeed,
+  nextCourse: () => RunCourse,
+  courseOf: CourseOf = courseForSeed,
 ): { run: RunState; world: WorldState } {
   switch (run.phase) {
     case "waiting":
@@ -99,34 +109,34 @@ export function stepRun(
       if (!(run.ready.pink && run.ready.blue)) return { run, world };
       // The countdown's first tick is this one, with both Birds back at the start of a new Course.
       return stepRun(
-        { phase: "countdown", seed: newSeed, secondsLeft: COUNTDOWN_SECONDS },
+        { phase: "countdown", ...nextCourse(), secondsLeft: COUNTDOWN_SECONDS },
         initialWorld(),
         thrust,
         dt,
-        newSeed,
+        nextCourse,
         courseOf,
       );
     case "countdown": {
-      const { seed } = run;
+      const { seed, opening } = run;
       const secondsLeft = run.secondsLeft - dt;
       // A little slack so float error in dt doesn't cost a whole extra tick.
-      if (secondsLeft <= 1e-6) return { run: { phase: "running", seed, distance: 0 }, world };
-      return { run: { phase: "countdown", seed, secondsLeft }, world };
+      if (secondsLeft <= 1e-6) return { run: { phase: "running", seed, opening, distance: 0 }, world };
+      return { run: { phase: "countdown", seed, opening, secondsLeft }, world };
     }
     case "running": {
-      const { seed } = run;
-      const next = stepWorld(world, thrust, dt, courseOf(seed));
+      const { seed, opening } = run;
+      const next = stepWorld(world, thrust, dt, courseOf(seed, opening));
       const distance = Math.max(run.distance, distanceOf(next));
       if (next.fallen) {
-        return { run: { phase: "ended", seed, end: "fallen", distance, ready: { ...NOBODY_READY } }, world: next };
+        return { run: { phase: "ended", seed, opening, end: "fallen", distance, ready: { ...NOBODY_READY } }, world: next };
       }
-      return { run: { phase: "running", seed, distance }, world: next };
+      return { run: { phase: "running", seed, opening, distance }, world: next };
     }
     case "paused": {
-      const { seed, distance } = run;
+      const { seed, opening, distance } = run;
       const secondsLeft = run.secondsLeft - dt;
       if (secondsLeft <= 1e-6) {
-        return { run: { phase: "ended", seed, end: "abandoned", distance, ready: { ...NOBODY_READY } }, world };
+        return { run: { phase: "ended", seed, opening, end: "abandoned", distance, ready: { ...NOBODY_READY } }, world };
       }
       return { run: { ...run, secondsLeft }, world };
     }

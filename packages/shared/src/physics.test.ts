@@ -319,3 +319,61 @@ describe("a low ceiling", () => {
     });
   });
 });
+
+describe("a pit with a floor", () => {
+  // Like the gap, but 1.5 m down there is a floor: a Bird that drops in stands on it.
+  const PIT = { start: 8, end: 10, floor: -1.5 };
+  const PIT_COURSE = courseOf([
+    { from: -100, to: PIT.start, height: 0 },
+    { from: PIT.start, to: PIT.end, height: PIT.floor },
+    { from: PIT.end, to: 200, height: 0 },
+  ]);
+  const inPit = (w: WorldState) => run(w, { pink: 0, blue: 0 }, 0, PIT_COURSE);
+
+  function until(world: WorldState, thrust: Thrusts, done: (w: WorldState) => boolean): number {
+    let w = world;
+    for (let i = 1; i <= 10 * TICK_HZ; i++) {
+      w = stepWorld(w, thrust, TICK, PIT_COURSE);
+      if (done(w)) return i / TICK_HZ;
+    }
+    return Infinity;
+  }
+
+  it("catches both Birds on its floor, which is not Fallen", () => {
+    const start = inPit(standing(PIT.start - 0.3, PIT.start - 1));
+    expect(until(start, { pink: 0.3, blue: 0.3 }, (w) => w.fallen)).toBe(Infinity);
+    const end = run(start, { pink: 0.3, blue: 0.3 }, 4, PIT_COURSE);
+    for (const b of [end.birds.pink, end.birds.blue]) {
+      expect(b).toMatchObject({ y: PIT.floor, grounded: true });
+      // Its walls hold them in.
+      expect(b.x).toBeGreaterThanOrEqual(PIT.start);
+      expect(b.x).toBeLessThanOrEqual(PIT.end);
+    }
+  });
+
+  it("both Birds can jump out of it on the far side", () => {
+    const caught = run(inPit(standing(PIT.start - 0.3, PIT.start - 1)), { pink: 0.3, blue: 0.3 }, 4, PIT_COURSE);
+    const out = (w: WorldState) => w.birds.pink.grounded && w.birds.blue.grounded && w.birds.pink.y === 0 && w.birds.blue.y === 0;
+    expect(until(caught, { pink: 1, blue: 1 }, out)).toBeLessThan(3);
+  });
+
+  /** Pink walks into the pit and goes quiet; Blue stands at `blueX`. */
+  function pinkInPit(blueX: number): WorldState {
+    const walkedIn = until(inPit(standing(PIT.start - 0.3, blueX)), { pink: 0.3, blue: 0 }, (w) => w.birds.pink.y < 0);
+    const dropped = run(inPit(standing(PIT.start - 0.3, blueX)), { pink: 0.3, blue: 0 }, walkedIn, PIT_COURSE);
+    return run(dropped, { pink: 0, blue: 0 }, 1, PIT_COURSE);
+  }
+  const pinkOut = (w: WorldState) => w.birds.pink.grounded && w.birds.pink.y === 0;
+
+  it("a Bird in it climbs out up the Rope with its voice", () => {
+    const caught = pinkInPit(PIT.start - 1.5);
+    expect(caught.birds.pink).toMatchObject({ y: PIT.floor, grounded: true });
+    expect(until(caught, { pink: 0, blue: 0 }, pinkOut)).toBe(Infinity);
+    expect(until(caught, { pink: 0.4, blue: 0 }, pinkOut)).toBeLessThan(6);
+  });
+
+  it("its partner on the far side hauls it out by walking forward", () => {
+    const caught = pinkInPit(PIT.end + 1);
+    expect(until(caught, { pink: 0, blue: 0.4 }, pinkOut)).toBeLessThan(6);
+  });
+});

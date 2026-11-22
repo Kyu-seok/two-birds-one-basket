@@ -18,6 +18,8 @@ export type ClientMessage =
   | { type: "chat"; text: string }
   /** Press (or take back) Ready before a Run, or Again on the Run End screen. Only counts once calibrated. */
   | { type: "ready"; value: boolean }
+  /** Ask for (or take back asking for) the next Run to start with the Opening again. */
+  | { type: "replayOpening"; value: boolean }
   /** Voice chat setup for the partner's browser; the server passes it on. */
   | { type: "signal"; signal: VoiceSignal }
   /** Name a new Team for the two players in the Room. Only counts when they don't have one yet. */
@@ -58,6 +60,8 @@ export type ServerMessage =
       calibrated: PerBird<boolean>;
       /** Where the Room is in its Runs: waiting, countdown, running (with live Distance) or ended. */
       run: RunState;
+      /** A player asked for the next Run to start with the Opening again. */
+      replayOpening: boolean;
     };
 
 export const TICK_HZ = 30;

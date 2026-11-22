@@ -28,6 +28,8 @@ export interface RunView {
   calibrating: boolean;
   /** The Room's Team, Team History and Top 10, once the server has sent them. */
   scores: Scores | null;
+  /** A player asked for the next Run to start with the Opening again. */
+  replayOpening: boolean;
 }
 
 /**
@@ -35,7 +37,11 @@ export interface RunView {
  * paused for a dropped partner, and the Run End screen with "Again". During the countdown and
  * the Run itself it is hidden; the canvas shows those.
  */
-export function setupRunScreen(sendReady: (value: boolean) => void, nameTeam: (name: string) => void) {
+export function setupRunScreen(
+  sendReady: (value: boolean) => void,
+  nameTeam: (name: string) => void,
+  replayOpening: (value: boolean) => void,
+) {
   const box = document.getElementById("run")!;
   let shown = "";
 
@@ -60,6 +66,13 @@ export function setupRunScreen(sendReady: (value: boolean) => void, nameTeam: (n
       form.onsubmit = (e) => {
         e.preventDefault();
         if (input.value.trim()) nameTeam(input.value);
+      };
+    }
+    const replay = box.querySelector<HTMLButtonElement>("button.replay");
+    if (replay) {
+      replay.onclick = () => {
+        replay.blur();
+        replayOpening(!v.replayOpening);
       };
     }
     const button = box.querySelector<HTMLButtonElement>("button.ready");
@@ -122,7 +135,19 @@ function teamSection(scores: Scores | null): string {
   return `${naming}${historyTable(scores.history)}${topTable(scores)}`;
 }
 
-function render({ run, myBird, present, calibrated, scores }: RunView): string {
+/**
+ * Whether the next Run starts with the Opening, and the button to replay it. A known Team that
+ * has finished a Run skips it unless a player asks; everyone else gets it.
+ */
+function openingLine(scores: Scores | null, replay: boolean): string {
+  const skips = !!scores?.team && scores.history.length > 0;
+  if (!skips) return `<p class="opening">The Run starts with the Opening, to learn the controls.</p>`;
+  return replay
+    ? `<p class="opening"><button class="replay pressed">Replay the Opening ✓ (press to take back)</button></p>`
+    : `<p class="opening"><button class="replay">Replay the Opening</button></p>`;
+}
+
+function render({ run, myBird, present, calibrated, scores, replayOpening }: RunView): string {
   if (run.phase === "countdown" || run.phase === "running") return "";
   const partner = partnerOf(myBird);
   if (run.phase === "paused") {
@@ -153,5 +178,5 @@ function render({ run, myBird, present, calibrated, scores }: RunView): string {
       : `<h2>${team ? `Welcome back, ${team}!` : "Ready?"}</h2><p>The Run starts when you both press Ready.</p>`;
 
   const below = run.phase === "ended" ? teamSection(scores) : "";
-  return `${head}<p>${button}</p><p class="partner">${partnerLine}</p>${below}`;
+  return `${head}<p>${button}</p><p class="partner">${partnerLine}</p>${openingLine(scores, replayOpening)}${below}`;
 }

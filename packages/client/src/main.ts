@@ -151,6 +151,7 @@ async function enter(roomCode: string) {
     const runScreen = setupRunScreen(
       (value) => socket?.send({ type: "ready", value }),
       (name) => socket?.send({ type: "nameTeam", name }),
+      (value) => socket?.send({ type: "replayOpening", value }),
     );
     const keys = KEYS_MODE ? keyboardThrust() : null;
 
@@ -211,7 +212,15 @@ async function enter(roomCode: string) {
         const inRun = s.run.phase === "countdown" || s.run.phase === "running" || s.run.phase === "paused";
         // Calibration waits until the Run is over.
         if (!keys) recalibrate.hidden = inRun;
-        runScreen({ run: s.run, myBird, present: s.present, calibrated: s.calibrated, calibrating: !panel.hidden, scores });
+        runScreen({
+          run: s.run,
+          myBird,
+          present: s.present,
+          calibrated: s.calibrated,
+          calibrating: !panel.hidden,
+          scores,
+          replayOpening: s.replayOpening,
+        });
         draw({
           world,
           run: s.run,
