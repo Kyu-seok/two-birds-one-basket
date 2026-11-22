@@ -1,6 +1,10 @@
 import { BIRDS, partnerOf, type Bird, type PerBird } from "./bird.ts";
+import type { Course, Span } from "./course.ts";
 
-/** World units are meters; y points up and the ground's surface is y = 0. A Bird's x, y is its feet. */
+/**
+ * World units are meters; y points up and ground level is y = 0. Raised ground (steps) sits above
+ * it; only a gap goes below it. A Bird's x, y is its feet; its body reaches `PHYSICS.birdHeight` up.
+ */
 export interface BirdState {
   x: number;
   y: number;
@@ -18,25 +22,11 @@ export interface WorldState {
   /** How much Rope is let out between the Birds; a hanging Bird shortens it by climbing. */
   ropeLength: number;
   /**
-   * Both Birds have dropped below the ground's surface, so nothing can hold them up any
-   * more. Only a gap goes below the surface.
+   * Both Birds have dropped below ground level, so nothing can hold them up any more. Only a gap
+   * goes below ground level.
    */
   fallen: boolean;
 }
-
-/** A stretch with no ground, open from just after `start` to just before `end`. */
-export interface Gap {
-  start: number;
-  end: number;
-}
-
-export interface Course {
-  /** Flat ground at y = 0 everywhere except these gaps, which have no bottom. */
-  gaps: readonly Gap[];
-}
-
-/** Flat ground with one gap: too wide to walk across, so it needs a jump. */
-export const TEST_COURSE: Course = { gaps: [{ start: 8, end: 9.8 }] };
 
 /** Each Bird's Thrust, 0..1. */
 export type Thrusts = PerBird<number>;
@@ -63,7 +53,9 @@ export const PHYSICS = {
    * a few ticks, so the first tick past the threshold is rarely the voice's peak.
    */
   jumpBoostSeconds: 0.2,
-  /** Long enough for one Bird to fall into the test gap and be rescued. */
+  /** From a Bird's feet to the top of its head: a low ceiling bonks it there. */
+  birdHeight: 0.7,
+  /** Long enough for one Bird to fall into a gap and be rescued. */
   ropeLength: 4,
   /** How long after walking off a ledge a Bird can still jump. */
   ledgeGraceSeconds: 0.2,
@@ -101,7 +93,7 @@ export function stepWorld(w: WorldState, thrust: Thrusts, dt: number, course: Co
   return { birds, ropeLength, fallen: BIRDS.every((bird) => hasDropped(birds[bird])) };
 }
 
-/** A Bird is hanging when it has dropped below the ground's surface while its partner stands on it. */
+/** A Bird is hanging when it has dropped below ground level while its partner stands on ground. */
 function isHanging(w: WorldState, bird: Bird): boolean {
   return w.birds[bird].y < 0 && w.birds[partnerOf(bird)].grounded;
 }
@@ -119,15 +111,17 @@ function hasDropped(b: BirdState): boolean {
 /** A climber that has taken in all the Rope it can scrambles onto the lip on its partner's side. */
 function climbOverLip(b: BirdState, partner: BirdState, course: Course) {
   if (b.y >= 0 || !partner.grounded) return;
-  const gap = nearestGap(course, b.x);
+  const near = surroundings(course, b.x);
+  const gap = nearestGap(near, b.x);
   if (!gap) return;
-  land(b);
-  b.x = partner.x <= gap.start ? gap.start : gap.end;
+  const lip = partner.x <= gap.start ? gap.start : gap.end;
+  land(b, surfaceAt(near, lip));
+  b.x = lip;
   b.vx = 0;
 }
 
-function land(b: BirdState) {
-  b.y = 0;
+function land(b: BirdState, height: number) {
+  b.y = height;
   b.vy = 0;
   b.grounded = true;
   b.jumped = false;
@@ -150,10 +144,31 @@ function stepBird(b: BirdState, thrust: number, dt: number, course: Course): Bir
   }
 
   vy -= PHYSICS.gravity * dt;
-  const next: BirdState = { ...b, x: b.x + vx * dt, y: b.y + vy * dt, vx, vy, grounded: false, jumped };
+  const near = surroundings(course, b.x);
+  const next: BirdState = { ...b, x: b.x + vx * dt, y: b.y, vx, vy, grounded: false, jumped };
   next.airTime = airTime + dt;
-  if (next.y <= 0 && b.y >= 0 && onGround(course, next.x)) land(next);
-  keepOutOfWalls(next, course);
+
+  // Across first: the side of a step or of a low ceiling is a wall.
+  if (b.y >= 0) {
+    const wall = solidAt(near, next.x, b.y);
+    if (wall) {
+      next.x = edgeFacing(wall, b.x);
+      next.vx = 0;
+    }
+  }
+
+  // Then up or down.
+  next.y = b.y + vy * dt;
+  const ceiling = ceilingAbove(near, next.x, b.y + PHYSICS.birdHeight);
+  if (ceiling !== null && next.y + PHYSICS.birdHeight > ceiling) {
+    // Bonk: a jump that's too loud hits its head, loses its way forward and drops (ADR 0008).
+    next.y = ceiling - PHYSICS.birdHeight;
+    next.vy = Math.min(0, next.vy);
+    next.vx = 0;
+  }
+  const floor = groundBelow(near, next.x, b.y);
+  if (floor !== null && next.y <= floor) land(next, floor);
+  keepOutOfWalls(next, near);
   return next;
 }
 
@@ -175,7 +190,7 @@ function holdRope(birds: PerBird<BirdState>, length: number, course: Course) {
 
   // Off the ground it is a real rope. A Bird standing on the ground holds firm; Birds in the
   // air share the pull equally.
-  const yBefore = { pink: pink.y, blue: blue.y };
+  const before = { pink: { x: pink.x, y: pink.y }, blue: { x: blue.x, y: blue.y } };
   const pinkShare = pink.grounded ? 0 : blue.grounded ? 1 : 0.5;
   const ux = dx / dist;
   const uy = dy / dist;
@@ -200,29 +215,95 @@ function holdRope(birds: PerBird<BirdState>, length: number, course: Course) {
   for (const bird of BIRDS) {
     const b = birds[bird];
     if (b.grounded) continue;
-    if (b.y < 0 && yBefore[bird] >= 0 && onGround(course, b.x)) {
+    const near = surroundings(course, b.x);
+    const was = before[bird];
+    const floor = groundBelow(near, b.x, was.y);
+    if (floor !== null && b.y < floor) {
       // Pulled down onto solid ground: it lands there.
-      land(b);
+      land(b, floor);
       continue;
     }
+    if (b.y >= 0) {
+      // Pulled sideways into a step or a low ceiling: it stays outside.
+      const solid = solidAt(near, b.x, b.y);
+      if (solid) {
+        b.x = edgeFacing(solid, was.x);
+        b.vx = 0;
+      }
+    }
     const anchor = birds[partnerOf(bird)];
-    keepOutOfWalls(b, course, anchor.grounded ? anchor : undefined, length);
+    keepOutOfWalls(b, near, anchor.grounded ? anchor : undefined, length);
   }
 }
 
-/** Whether there is ground under `x`. */
-function onGround(course: Course, x: number): boolean {
-  return !course.gaps.some((g) => x > g.start && x < g.end);
+/** The Course's ground and ceilings near `x`, in Course coordinates. */
+interface Surroundings {
+  ground: Span[];
+  ceilings: Span[];
+}
+
+/** Far enough either side of a Bird to cover the Rope's reach and a tick's travel. */
+const NEAR = 12;
+
+function surroundings(course: Course, x: number): Surroundings {
+  const near: Surroundings = { ground: [], ceilings: [] };
+  for (const { x: at, piece } of course.piecesBetween(x - NEAR, x + NEAR)) {
+    const place = (s: Span) => ({ from: at + s.from, to: at + s.to, height: s.height });
+    near.ground.push(...piece.ground.map(place));
+    near.ceilings.push(...piece.ceilings.map(place));
+  }
+  return near;
+}
+
+/** A tiny tolerance, so a Bird resting exactly on a surface isn't inside it. */
+const EPS = 1e-9;
+
+/** The highest ground surface under `x` at or below `y`, or null over a gap. A span's ends count as ground. */
+function groundBelow(near: Surroundings, x: number, y: number): number | null {
+  let best: number | null = null;
+  for (const g of near.ground) {
+    if (x >= g.from && x <= g.to && g.height <= y + EPS && (best === null || g.height > best)) best = g.height;
+  }
+  return best;
+}
+
+/** The surface at `x`: the highest ground there. */
+function surfaceAt(near: Surroundings, x: number): number {
+  return groundBelow(near, x, Infinity) ?? 0;
+}
+
+/** The lowest ceiling over `x` at or above `head`, or null if there is none. */
+function ceilingAbove(near: Surroundings, x: number, head: number): number | null {
+  let best: number | null = null;
+  for (const c of near.ceilings) {
+    if (x > c.from && x < c.to && c.height >= head - EPS && (best === null || c.height < best)) best = c.height;
+  }
+  return best;
+}
+
+/** Raised ground or a ceiling that a Bird with its feet at `x`, `y` would be inside, at or above ground level. */
+function solidAt(near: Surroundings, x: number, y: number): Span | undefined {
+  return (
+    near.ground.find((g) => x > g.from && x < g.to && y < g.height - EPS) ??
+    near.ceilings.find((c) => x > c.from && x < c.to && y + PHYSICS.birdHeight > c.height + EPS)
+  );
+}
+
+/** The side of `solid` facing a Bird that came from `fromX`. */
+function edgeFacing(solid: Span, fromX: number): number {
+  if (fromX <= solid.from) return solid.from;
+  if (fromX >= solid.to) return solid.to;
+  return fromX - solid.from < solid.to - fromX ? solid.from : solid.to;
 }
 
 /**
- * A Bird below the surface is inside a gap, so the gap's walls hold it in. When it is held
+ * A Bird below ground level is inside a gap, so the gap's walls hold it in. When it is held
  * against a wall by a Rope tied to `anchor` on the ground, the Rope drags it up the wall,
  * and over the lip once the Rope is too short to reach down.
  */
-function keepOutOfWalls(b: BirdState, course: Course, anchor?: BirdState, length = 0) {
+function keepOutOfWalls(b: BirdState, near: Surroundings, anchor?: BirdState, length = 0) {
   if (b.y >= 0) return;
-  const gap = nearestGap(course, b.x);
+  const gap = nearestGap(near, b.x);
   if (!gap) return;
   const x = Math.min(gap.end, Math.max(gap.start, b.x));
   if (x === b.x) return;
@@ -231,19 +312,32 @@ function keepOutOfWalls(b: BirdState, course: Course, anchor?: BirdState, length
   if (!anchor) return;
   const reach = length * length - (anchor.x - x) ** 2;
   if (reach <= 0) {
-    b.y = 0;
+    b.y = surfaceAt(near, x);
     b.vy = Math.max(0, b.vy);
   } else {
     b.y = Math.max(b.y, anchor.y - Math.sqrt(reach));
   }
 }
 
-function nearestGap(course: Course, x: number): Gap | undefined {
+/** A stretch with no ground, open from just after `start` to just before `end`. */
+interface Gap {
+  start: number;
+  end: number;
+}
+
+/** The gap nearest `x`: the stretches between the ground spans nearby. */
+function nearestGap(near: Surroundings, x: number): Gap | undefined {
+  const spans = [...near.ground].sort((a, b) => a.from - b.from);
   let best: Gap | undefined;
   let bestDist = Infinity;
-  for (const g of course.gaps) {
-    const d = x < g.start ? g.start - x : x > g.end ? x - g.end : 0;
-    if (d < bestDist) (best = g), (bestDist = d);
+  let reached = -Infinity;
+  for (const s of spans) {
+    if (s.from > reached && reached > -Infinity) {
+      const g = { start: reached, end: s.from };
+      const d = x < g.start ? g.start - x : x > g.end ? x - g.end : 0;
+      if (d < bestDist) (best = g), (bestDist = d);
+    }
+    reached = Math.max(reached, s.to);
   }
   return best;
 }

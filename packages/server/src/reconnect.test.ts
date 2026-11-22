@@ -67,7 +67,7 @@ describe("a player dropping mid-Run", () => {
     blue.disconnect();
     scheduler.fire(TICK_HZ * RECONNECT_SECONDS);
 
-    expect(a.last("state")!.run).toEqual({ phase: "ended", end: "abandoned", distance, ready: { pink: false, blue: false } });
+    expect(a.last("state")!.run).toMatchObject({ phase: "ended", end: "abandoned", distance, ready: { pink: false, blue: false } });
     expect(scores.runs).toHaveLength(1);
     expect(scores.runs[0]!.run).toMatchObject({ end: "abandoned", distance });
     // The pause doesn't count toward how long the Run lasted.

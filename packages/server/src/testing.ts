@@ -1,6 +1,6 @@
 /** Test doubles shared by the server's tests: drive a RoomRegistry without sockets or real timers. */
 import { randomUUID } from "node:crypto";
-import { COUNTDOWN_SECONDS, TICK_HZ, type ServerMessage, type StoredRun, type TeamInfo, type TopRun } from "@tbob/shared";
+import { COUNTDOWN_SECONDS, TICK_HZ, courseOf, type ServerMessage, type StoredRun, type TeamInfo, type TopRun } from "@tbob/shared";
 import { createRoomRegistry, type Connection, type Player, type Scheduler } from "./rooms.ts";
 import { pairKey, type Pair, type ScoreStore } from "./scores.ts";
 
@@ -32,6 +32,13 @@ export class FakeScheduler implements Scheduler {
     for (let i = 0; i < n; i++) for (const t of this.timers) if (!t.cancelled) t.fn();
   }
 }
+
+/** Every Run in the tests is on flat ground with one gap, from 8 m to 9.8 m. */
+const TEST_GAP = { start: 8, end: 9.8 };
+const TEST_COURSE = courseOf([
+  { from: -100, to: TEST_GAP.start, height: 0 },
+  { from: TEST_GAP.end, to: 200, height: 0 },
+]);
 
 /** A ScoreStore in memory; `scores.test.ts` holds it to the same contract as the SQLite one. */
 export class MemoryScores implements ScoreStore {
@@ -66,7 +73,9 @@ export class MemoryScores implements ScoreStore {
 export function setup(opts: { now?: () => number } = {}) {
   const scheduler = new FakeScheduler();
   const scores = new MemoryScores();
-  const rooms = createRoomRegistry({ scheduler, scores, ...opts });
+  // Each tick offers the next seed, so each Run's seed differs.
+  let seed = 0;
+  const rooms = createRoomRegistry({ scheduler, scores, makeSeed: () => ++seed, courseOf: () => TEST_COURSE, ...opts });
   return { scheduler, rooms, scores };
 }
 

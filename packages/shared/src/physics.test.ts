@@ -1,13 +1,21 @@
 import { describe, expect, it } from "vitest";
 import type { Bird } from "./bird.ts";
 import { TICK_HZ } from "./messages.ts";
-import { PHYSICS, TEST_COURSE, initialWorld, stepWorld, type BirdState, type Thrusts, type WorldState } from "./physics.ts";
+import { PIECES, courseOf, fixedCourse, type Course } from "./course.ts";
+import { PHYSICS, initialWorld, stepWorld, type BirdState, type Thrusts, type WorldState } from "./physics.ts";
 
 const TICK = 1 / TICK_HZ;
 
-function run(world: WorldState, thrust: Thrusts, seconds: number): WorldState {
+// Flat ground with one gap: too wide to walk across, so it needs a jump.
+const GAP = { start: 8, end: 9.8 };
+const TEST_COURSE = courseOf([
+  { from: -100, to: GAP.start, height: 0 },
+  { from: GAP.end, to: 200, height: 0 },
+]);
+
+function run(world: WorldState, thrust: Thrusts, seconds: number, course: Course = TEST_COURSE): WorldState {
   let w = world;
-  for (let i = 0; i < Math.round(seconds * TICK_HZ); i++) w = stepWorld(w, thrust, TICK, TEST_COURSE);
+  for (let i = 0; i < Math.round(seconds * TICK_HZ); i++) w = stepWorld(w, thrust, TICK, course);
   return w;
 }
 
@@ -39,11 +47,11 @@ describe("walking", () => {
 });
 
 /** The highest the Bird's feet reach over `seconds`. */
-function peak(world: WorldState, thrust: Thrusts, who: Bird, seconds: number): number {
+function peak(world: WorldState, thrust: Thrusts, who: Bird, seconds: number, course: Course = TEST_COURSE): number {
   let w = world;
   let top = w.birds[who].y;
   for (let i = 0; i < Math.round(seconds * TICK_HZ); i++) {
-    w = stepWorld(w, thrust, TICK, TEST_COURSE);
+    w = stepWorld(w, thrust, TICK, course);
     top = Math.max(top, w.birds[who].y);
   }
   return top;
@@ -86,8 +94,6 @@ describe("the Rope on the ground", () => {
     expect(end.birds.blue.x).toBe(1);
   });
 });
-
-const GAP = TEST_COURSE.gaps[0]!;
 
 describe("the gap", () => {
   it("is wider than a Bird can cross by walking, but a loud jump clears it", () => {
@@ -225,5 +231,91 @@ describe("the Rope in the air", () => {
     expect(end.birds.blue.x).toBeLessThan(GAP.start);
     expect(end.birds.blue.y).toBe(0);
     expect(end.birds.blue.grounded).toBe(true);
+  });
+});
+
+/** A Bird standing at `x` on ground at height `y`. */
+function standingAt(b: BirdState, x: number, y: number): BirdState {
+  return { ...b, x, y, vx: 0, vy: 0, grounded: true };
+}
+
+describe("steps", () => {
+  // Flat, then a step up 0.4 m from 5 m to 8 m, then back down.
+  const STEP = courseOf([
+    { from: -100, to: 5, height: 0 },
+    { from: 5, to: 8, height: 0.4 },
+    { from: 8, to: 200, height: 0 },
+  ]);
+
+  it("the side of a step is a wall that stops a walking Bird", () => {
+    const end = run(standing(3, 2), { pink: 0.5, blue: 0 }, 3, STEP);
+    expect(end.birds.pink).toMatchObject({ x: 5, y: 0, grounded: true });
+  });
+
+  it("a soft jump climbs onto the step", () => {
+    const atWall = run(standing(4.5, 3), { pink: 0.5, blue: 0 }, 1, STEP);
+    const jumped = run(atWall, { pink: 0.65, blue: 0 }, 0.1, STEP);
+    const end = run(jumped, { pink: 0.3, blue: 0 }, 1, STEP);
+    expect(end.birds.pink.x).toBeGreaterThan(5);
+    expect(end.birds.pink).toMatchObject({ y: 0.4, grounded: true });
+  });
+
+  it("walking off the top of a step drops down onto the ground below", () => {
+    const w = initialWorld();
+    const top = { ...w, birds: { pink: standingAt(w.birds.pink, 7, 0.4), blue: standingAt(w.birds.blue, 6, 0.4) } };
+    const end = run(top, { pink: 0.5, blue: 0 }, 1.5, STEP);
+    expect(end.birds.pink.x).toBeGreaterThan(8);
+    expect(end.birds.pink).toMatchObject({ y: 0, grounded: true });
+    expect(end.fallen).toBe(false);
+  });
+});
+
+describe("a low ceiling", () => {
+  const CEILING = { from: 3, to: 9, height: 1.8 };
+  const FLAT_UNDER_CEILING = courseOf([{ from: -100, to: 200, height: 0 }], [CEILING]);
+
+  it("lets a soft jump through", () => {
+    const top = peak(standing(4, 1), { pink: 0.65, blue: 0 }, "pink", 1, FLAT_UNDER_CEILING);
+    expect(top).toBeGreaterThan(0.5);
+    expect(top + PHYSICS.birdHeight).toBeLessThan(CEILING.height);
+  });
+
+  it("bonks the head of a Bird that jumps too loud, stopping it dead", () => {
+    const top = peak(standing(4, 1), { pink: 1, blue: 0 }, "pink", 1, FLAT_UNDER_CEILING);
+    expect(top + PHYSICS.birdHeight).toBeCloseTo(CEILING.height, 6);
+
+    const end = run(run(standing(4, 1), { pink: 1, blue: 0 }, 0.3, FLAT_UNDER_CEILING), { pink: 0, blue: 0 }, 1, FLAT_UNDER_CEILING);
+    expect(end.birds.pink).toMatchObject({ y: 0, grounded: true });
+    // It went up and came straight back down instead of carrying on forward.
+    expect(end.birds.pink.x).toBeLessThan(4.6);
+  });
+
+  it("its side is a wall to a Bird jumping into it from below and in front", () => {
+    const end = run(run(standing(2.5, 1), { pink: 1, blue: 0 }, 0.3, FLAT_UNDER_CEILING), { pink: 0, blue: 0 }, 1, FLAT_UNDER_CEILING);
+    expect(end.birds.pink.x).toBeCloseTo(CEILING.from, 6);
+    expect(end.birds.pink).toMatchObject({ y: 0, grounded: true });
+  });
+
+  describe("the low ceiling Piece", () => {
+    const piece = PIECES.find((p) => p.name === "low ceiling")!;
+    const course = fixedCourse([
+      { x: -100, piece: { ...piece, name: "run-up", length: 100, ground: [{ from: 0, to: 100, height: 0 }], ceilings: [] } },
+      { x: 0, piece },
+    ]);
+    const gapStart = piece.ground[0]!.to;
+    const gapEnd = piece.ground[1]!.from;
+
+    it("a soft hop crosses the gap under it", () => {
+      const hopped = run(standing(gapStart - 0.3, gapStart - 1.5), { pink: 0.65, blue: 0 }, 0.15, course);
+      const end = run(hopped, { pink: 0, blue: 0 }, 2, course);
+      expect(end.birds.pink.x).toBeGreaterThan(gapEnd);
+      expect(end.birds.pink).toMatchObject({ y: 0, grounded: true });
+    });
+
+    it("a jump that is too loud bonks and drops the Bird into the gap", () => {
+      const jumped = run(standing(gapStart - 0.3, gapStart - 1.5), { pink: 1, blue: 0 }, 0.3, course);
+      const end = run(jumped, { pink: 0, blue: 0 }, 2, course);
+      expect(end.birds.pink.y).toBeLessThan(0);
+    });
   });
 });
