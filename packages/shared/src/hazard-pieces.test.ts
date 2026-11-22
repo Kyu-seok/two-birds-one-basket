@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { BIRDS, partnerOf, type Bird } from "./bird.ts";
-import { PIECES, TIERS, fixedCourse, randomCourse, type Course, type Piece } from "./course.ts";
+import { PIECES, TIERS, courseOf, fixedCourse, randomCourse, type Course, type Piece } from "./course.ts";
 import { HARD_PIECES, MEDIUM_PIECES } from "./hazard-pieces.ts";
 import { isBlowing, motionOffset } from "./hazards.ts";
 import { TICK_HZ } from "./messages.ts";
 import { initialWorld, stepWorld, type Thrusts, type WorldState } from "./physics.ts";
+import { loneBirdCrosses } from "./testing.ts";
 
 /**
  * Each Medium and Hard Piece played through by two scripted players, at Full Voice or below
@@ -165,6 +166,14 @@ describe("Medium: the together gap", () => {
     const played = playPast(p, p.length, (s) => (s.birds.blue.grounded && s.birds.blue.x < 5 ? { pink: 0, blue: 0.9 } : SILENT), 3, ready);
     expect(played.world.birds.blue.y).toBeLessThan(0);
     expect(played.fallen).toBe(false);
+  });
+});
+
+describe("Medium: the together gap, for a Bird alone", () => {
+  it("can't be crossed by one Bird hanging in it, swinging and climbing, while its partner anchors", () => {
+    expect(loneBirdCrosses(courseWith(piece("together gap")), 5, 6.8)).toBe(false);
+    // The same Bird does get across a narrower gap that way.
+    expect(loneBirdCrosses(courseOf([{ from: -30, to: 5, height: 0 }, { from: 5.6, to: 40, height: 0 }]), 5, 5.6)).toBe(true);
   });
 });
 

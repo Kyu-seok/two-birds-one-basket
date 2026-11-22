@@ -4,6 +4,7 @@ import { fixedCourse, courseForSeed, randomCourse } from "./course.ts";
 import { TICK_HZ } from "./messages.ts";
 import { OPENING, OPENING_HINTS } from "./opening.ts";
 import { initialWorld, stepWorld, type Thrusts, type WorldState } from "./physics.ts";
+import { loneBirdCrosses } from "./testing.ts";
 
 const TICK = 1 / TICK_HZ;
 /** The Opening on its own, followed by flat ground. */
@@ -120,6 +121,10 @@ describe("the Opening", () => {
     start.birds.blue = { ...start.birds.blue, x: 30.5 };
     const { world } = play(start, once(33.6, 1), 2);
     expect(world.birds.pink.x).toBeLessThan(34);
+  });
+
+  it("won't let a Bird hanging alone in the together gap swing or climb across it", () => {
+    expect(loneBirdCrosses(COURSE, 34, 35.8)).toBe(false);
   });
 
   /** Walks both Birds into the rescue pit, `lead` m apart, and leaves the one behind on the lip. */
