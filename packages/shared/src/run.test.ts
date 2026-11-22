@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { TICK_HZ } from "./messages.ts";
 import { TEST_COURSE, initialWorld, type Thrusts, type WorldState } from "./physics.ts";
-import { COUNTDOWN_SECONDS, distanceOf, newRoomRun, setReady, stepRun, type RunState } from "./run.ts";
+import {
+  COUNTDOWN_SECONDS,
+  RECONNECT_SECONDS,
+  distanceOf,
+  newRoomRun,
+  playerLeft,
+  playerReturned,
+  setReady,
+  stepRun,
+  type RunState,
+} from "./run.ts";
 
 const TICK = 1 / TICK_HZ;
 const SILENT: Thrusts = { pink: 0, blue: 0 };
@@ -136,5 +146,48 @@ describe("Again", () => {
   it("Ready can't be pressed during a Run", () => {
     const { run } = started();
     expect(setReady(run, "pink", true)).toEqual(run);
+  });
+});
+
+describe("a player dropping mid-Run", () => {
+  function paused() {
+    const s = started();
+    const walked = tick(s.run, s.world, { pink: 0.4, blue: 0.4 }, 1);
+    return { ...walked, run: playerLeft(walked.run, "blue") };
+  }
+
+  it("pauses the Run with both Birds frozen, counting down from 30 s", () => {
+    const s = paused();
+    expect(s.run).toMatchObject({ phase: "paused", dropped: "blue", secondsLeft: RECONNECT_SECONDS });
+
+    const later = tick(s.run, s.world, { pink: 1, blue: 0 }, 10);
+    expect(later.world).toEqual(s.world);
+    expect(later.run.phase === "paused" && Math.ceil(later.run.secondsLeft)).toBe(20);
+  });
+
+  it("resumes the Run where it stopped when the dropped player returns in time", () => {
+    const s = paused();
+    const distance = s.run.phase === "paused" ? s.run.distance : -1;
+    const waited = tick(s.run, s.world, SILENT, 20);
+
+    const back = playerReturned(waited.run, "blue");
+    expect(back).toEqual({ phase: "running", distance });
+    expect(distance).toBeGreaterThan(0.5);
+    const moved = tick(back, waited.world, { pink: 0.4, blue: 0.4 }, 0.5);
+    expect(moved.world.birds.pink.x).toBeGreaterThan(waited.world.birds.pink.x);
+  });
+
+  it("only the dropped player's return resumes it", () => {
+    const { run } = paused();
+    expect(playerReturned(run, "pink")).toEqual(run);
+  });
+
+  it("ends the Run as Abandoned with its Distance after 30 s", () => {
+    const s = paused();
+    const distance = s.run.phase === "paused" ? s.run.distance : -1;
+    const later = tick(s.run, s.world, SILENT, RECONNECT_SECONDS);
+
+    expect(later.run).toEqual({ phase: "ended", end: "abandoned", distance, ready: { pink: false, blue: false } });
+    expect(playerReturned(later.run, "blue")).toEqual(later.run);
   });
 });

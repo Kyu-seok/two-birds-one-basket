@@ -204,7 +204,7 @@ async function enter(roomCode: string) {
       if (latest && myBird) {
         const world = prev ? interpolate(prev, latest, now) : latest.msg.world;
         const s = latest.msg;
-        const inRun = s.run.phase === "countdown" || s.run.phase === "running";
+        const inRun = s.run.phase === "countdown" || s.run.phase === "running" || s.run.phase === "paused";
         // Calibration waits until the Run is over.
         if (!keys) recalibrate.hidden = inRun;
         runScreen({ run: s.run, myBird, present: s.present, calibrated: s.calibrated, calibrating: !panel.hidden, scores });
