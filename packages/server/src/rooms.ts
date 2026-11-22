@@ -119,6 +119,9 @@ interface Deps {
   courseOf?: CourseOf;
 }
 
+/** Deps with every default filled in. */
+type Settled = Required<Deps>;
+
 /** The Browser IDs of the two players in the Room, or null unless both are here and sent one. */
 export function pairOf(room: Pick<Room, "seats" | "players">): Pair | null {
   const [pink, blue] = [room.seats.pink.browser, room.seats.blue.browser];
@@ -158,11 +161,11 @@ function freeBird(room: Room, bird: Bird) {
  * A player is gone. Their Bird waits for their browser as long as a paused Run would; without a
  * Browser ID nobody can come back to it, so it is free at once and a Run under way is Abandoned.
  */
-function playerGone(room: Room, bird: Bird, scores: ScoreStore, now: () => number) {
+function playerGone(room: Room, bird: Bird, deps: Settled) {
   const canReturn = room.seats[bird].browser !== null;
   if (canReturn) room.seats[bird].reservedUntil = room.tick + RECONNECT_SECONDS * TICK_HZ;
   else freeBird(room, bird);
-  setRun(room, scores, now, playerLeft(room.run, bird, canReturn));
+  setRun(room, deps, playerLeft(room.run, bird, canReturn));
 }
 
 /** Nobody is in the Room and no Bird is kept for anyone coming back. */
@@ -171,29 +174,30 @@ function deserted(room: Room): boolean {
 }
 
 /** Records the Run that just ended in the Team History (and maybe the Top 10). */
-function saveRun(room: Room, scores: ScoreStore, now: () => number, end: RunEndReason, distance: number) {
+function saveRun(room: Room, deps: Settled, end: RunEndReason, distance: number) {
   const { runStart } = room;
   if (!runStart) return;
-  scores.saveRun(runStart.pair, { distance, end, seconds: runStart.ticks / TICK_HZ, endedAt: now() });
+  deps.scores.saveRun(runStart.pair, { distance, end, seconds: runStart.ticks / TICK_HZ, endedAt: deps.now() });
   room.runStart = null;
 }
 
 /** Moves the Room's Run on to `next`, recording it if it has just ended. */
-function setRun(room: Room, scores: ScoreStore, now: () => number, next: RunState) {
+function setRun(room: Room, deps: Settled, next: RunState) {
   const ending = room.run.phase !== "ended" && next.phase === "ended";
   room.run = next;
   if (next.phase === "ended" && ending) {
-    saveRun(room, scores, now, next.end, next.distance);
-    sendScores(room, scores);
+    saveRun(room, deps, next.end, next.distance);
+    sendScores(room, deps.scores);
   }
 }
 
-function tick(room: Room, deps: Deps, scores: ScoreStore, now: () => number) {
+function tick(room: Room, deps: Settled) {
   const before = room.run.phase;
-  const nextCourse = () => ({ seed: (deps.makeSeed ?? newCourseSeed)(), opening: playsOpening(room, scores) });
+  const nextCourse = () => ({ seed: deps.makeSeed(), opening: playsOpening(room, deps.scores) });
   const dt = TICK_MS / 1000;
-  const { run, world } = stepRun(room.run, room.world, room.thrust, dt, nextCourse, deps.courseOf ?? courseForSeed);
-  setRun(room, scores, now, run);
+  const { run, world } = stepRun(room.run, room.world, room.thrust, dt, nextCourse, deps.courseOf);
+  if (before === "running" && room.runStart) room.runStart.ticks++;
+  setRun(room, deps, run);
   room.world = world;
   room.tick++;
   // A replay asked for is used up by the Run it starts.
@@ -203,7 +207,6 @@ function tick(room: Room, deps: Deps, scores: ScoreStore, now: () => number) {
     if (until !== null && room.tick >= until) freeBird(room, bird);
   }
   if (before === "countdown" && run.phase === "running") room.runStart = { ticks: 0, pair: pairOf(room) };
-  else if (before === "running" && room.runStart) room.runStart.ticks++;
   broadcast(room, {
     type: "state",
     tick: room.tick,
@@ -217,10 +220,15 @@ function tick(room: Room, deps: Deps, scores: ScoreStore, now: () => number) {
   });
 }
 
-export function createRoomRegistry(deps: Deps): RoomRegistry {
-  const { scores } = deps;
-  const makeCode = deps.makeCode ?? randomCode;
-  const now = deps.now ?? Date.now;
+export function createRoomRegistry(given: Deps): RoomRegistry {
+  const deps: Settled = {
+    ...given,
+    makeCode: given.makeCode ?? randomCode,
+    now: given.now ?? Date.now,
+    makeSeed: given.makeSeed ?? newCourseSeed,
+    courseOf: given.courseOf ?? courseForSeed,
+  };
+  const { scores, makeCode } = deps;
   const byCode = new Map<string, Room>();
   /** The Room ends once nobody is in it and nobody can come back to it. */
   const closeIfDeserted = (room: Room) => {
@@ -264,11 +272,11 @@ export function createRoomRegistry(deps: Deps): RoomRegistry {
       room.run = playerReturned(room.run, bird);
       // Back to a Run their partner has left too: it waits on for the partner.
       const partner = partnerOf(bird);
-      if (room.run.phase === "running" && !room.players[partner]) playerGone(room, partner, scores, now);
+      if (room.run.phase === "running" && !room.players[partner]) playerGone(room, partner, deps);
       conn.send({ type: "joined", bird, roomCode });
       sendScores(room, scores);
       room.stopLoop ??= deps.scheduler.every(TICK_MS, () => {
-        tick(room, deps, scores, now);
+        tick(room, deps);
         closeIfDeserted(room);
       });
 
@@ -323,7 +331,7 @@ export function createRoomRegistry(deps: Deps): RoomRegistry {
           delete room.players[bird];
           room.thrust[bird] = 0;
           room.pings[bird] = null;
-          playerGone(room, bird, scores, now);
+          playerGone(room, bird, deps);
           closeIfDeserted(room);
         },
       };
