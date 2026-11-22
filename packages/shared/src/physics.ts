@@ -86,7 +86,7 @@ export function stepWorld(w: WorldState, thrust: Thrusts, dt: number, course: Co
   // A hanging Bird climbs hand over hand, at its walking pace, taking in Rope.
   let ropeLength = w.ropeLength;
   for (const bird of BIRDS) {
-    if (isHanging(w, bird)) ropeLength -= walkSpeed(thrust[bird]) * dt;
+    if (isHanging(w.birds, bird)) ropeLength -= walkSpeed(thrust[bird]) * dt;
   }
   ropeLength = Math.max(PHYSICS.ropeLengthMin, ropeLength);
 
@@ -95,8 +95,8 @@ export function stepWorld(w: WorldState, thrust: Thrusts, dt: number, course: Co
     return stepBird(b, thrust[bird], dt, after, carried(b, before, after), windAt(after(b.x), b.x, time));
   };
   const birds = { pink: step("pink"), blue: step("blue") };
-  // Back on the ground, the Rope is let out again.
-  if (birds.pink.grounded && birds.blue.grounded) ropeLength = PHYSICS.ropeLength;
+  // Back on the ground together, the Rope is let out again.
+  if (bothStanding(birds)) ropeLength = PHYSICS.ropeLength;
   holdRope(birds, ropeLength, after);
   for (const bird of BIRDS) {
     if (ropeLength <= PHYSICS.ropeLengthMin) climbOverLip(birds[bird], birds[partnerOf(bird)], after);
@@ -104,7 +104,7 @@ export function stepWorld(w: WorldState, thrust: Thrusts, dt: number, course: Co
   return {
     birds,
     ropeLength,
-    fallen: BIRDS.every((bird) => hasDropped(birds[bird])),
+    fallen: BIRDS.every((bird) => hasDropped(birds[bird], after)),
     time,
     crumbling: crumble(w.crumbling, birds, after, time),
   };
@@ -150,9 +150,18 @@ function crumble(was: Crumbling, birds: PerBird<BirdState>, after: Around, time:
   return next ?? was;
 }
 
-/** A Bird is hanging when it has dropped below ground level while its partner stands on ground. */
-function isHanging(w: WorldState, bird: Bird): boolean {
-  return w.birds[bird].y < 0 && w.birds[partnerOf(bird)].grounded;
+/**
+ * A Bird is hanging when it has dropped below ground level while its partner stands on ground
+ * at or above it, so the Rope can bring it up. One standing on a pit's floor counts too.
+ */
+function isHanging(birds: PerBird<BirdState>, bird: Bird): boolean {
+  const partner = birds[partnerOf(bird)];
+  return birds[bird].y < 0 && partner.grounded && partner.y >= 0;
+}
+
+/** Both Birds stand on ground, and neither is down a pit below the other: the Rope is theirs to walk with. */
+function bothStanding(birds: PerBird<BirdState>): boolean {
+  return BIRDS.every((bird) => birds[bird].grounded && !isHanging(birds, bird));
 }
 
 /** Just off a ledge, a Bird can still jump: its own voice reaches the server a round trip late (ADR 0002). */
@@ -160,9 +169,12 @@ function inLedgeGrace(b: BirdState): boolean {
   return !b.grounded && !b.jumped && b.airTime < PHYSICS.ledgeGraceSeconds;
 }
 
-/** Below the surface, sinking, and too late to jump back out: only the Rope can hold it now. */
-function hasDropped(b: BirdState): boolean {
-  return b.y < 0 && b.vy <= 0 && !inLedgeGrace(b);
+/**
+ * Below the surface, sinking, too late to jump back out, and with no floor under it: only the
+ * Rope can hold it now. A pit's floor holds it like the Rope would.
+ */
+function hasDropped(b: BirdState, around: Around): boolean {
+  return b.y < 0 && b.vy <= 0 && !inLedgeGrace(b) && groundBelow(around(b.x), b.x, b.y) === null;
 }
 
 /** A climber that has taken in all the Rope it can scrambles onto the lip on its partner's side. */
@@ -209,13 +221,11 @@ function stepBird(b: BirdState, thrust: number, dt: number, around: Around, carr
   const next: BirdState = { ...b, x: b.x + (vx + wind) * dt + carry, y: b.y, vx, vy, grounded: false, jumped };
   next.airTime = airTime + dt;
 
-  // Across first: the side of a step or of a low ceiling is a wall.
-  if (b.y >= 0) {
-    const wall = solidAt(near, next.x, b.y);
-    if (wall) {
-      next.x = edgeFacing(wall, b.x);
-      next.vx = 0;
-    }
+  // Across first: the side of a step, of a low ceiling or of a pit is a wall.
+  const wall = solidAt(near, next.x, b.y);
+  if (wall) {
+    next.x = edgeFacing(wall, b.x);
+    next.vx = 0;
   }
 
   // Then up or down.
@@ -241,7 +251,7 @@ function holdRope(birds: PerBird<BirdState>, length: number, around: Around) {
   const dist = Math.hypot(dx, dy);
   if (dist <= length) return;
 
-  if (pink.grounded && blue.grounded) {
+  if (bothStanding(birds)) {
     // On the ground the Rope stops the Bird in front; it never drags the one behind.
     const [behind, front] = pink.x <= blue.x ? [pink, blue] : [blue, pink];
     front.x = behind.x + length;
@@ -250,9 +260,11 @@ function holdRope(birds: PerBird<BirdState>, length: number, around: Around) {
   }
 
   // Off the ground it is a real rope. A Bird standing on the ground holds firm; Birds in the
-  // air share the pull equally.
+  // air share the pull equally. A Bird on a pit's floor is lifted off it by its partner above.
   const before = { pink: { x: pink.x, y: pink.y }, blue: { x: blue.x, y: blue.y } };
-  const pinkShare = pink.grounded ? 0 : blue.grounded ? 1 : 0.5;
+  const holds = (bird: Bird) => birds[bird].grounded && !isHanging(birds, bird);
+  const pinkShare = holds("pink") ? 0 : holds("blue") ? 1 : 0.5;
+  for (const bird of BIRDS) if (!holds(bird)) birds[bird].grounded = false;
   const ux = dx / dist;
   const uy = dy / dist;
   const excess = dist - length;
@@ -329,7 +341,7 @@ function ceilingAbove(near: Surroundings, x: number, head: number): number | nul
   return best;
 }
 
-/** Raised ground or a ceiling that a Bird with its feet at `x`, `y` would be inside, at or above ground level. */
+/** Ground or a ceiling that a Bird with its feet at `x`, `y` would be inside. */
 function solidAt(near: Surroundings, x: number, y: number): Span | undefined {
   return (
     near.ground.find((g) => x > g.from && x < g.to && y < g.height - EPS) ??
@@ -373,9 +385,12 @@ interface Gap {
   end: number;
 }
 
-/** The gap nearest `x`: the stretches between the ground spans nearby. */
+/**
+ * The gap nearest `x`: the stretches between the ground spans nearby. A pit's floor (ground below
+ * ground level) doesn't close the gap above it: the pit's sides are its walls.
+ */
 function nearestGap(near: Surroundings, x: number): Gap | undefined {
-  const spans = [...near.ground].sort((a, b) => a.from - b.from);
+  const spans = near.ground.filter((s) => s.height >= 0).sort((a, b) => a.from - b.from);
   let best: Gap | undefined;
   let bestDist = Infinity;
   let reached = -Infinity;

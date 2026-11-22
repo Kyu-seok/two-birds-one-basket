@@ -1,3 +1,5 @@
+import { OPENING } from "./opening.ts";
+
 /**
  * The Course and the Pieces it is built from. The same Piece data drives the server's
  * collisions (`physics.ts`) and the client's drawing, and a Run's Course is rebuilt on each
@@ -60,9 +62,9 @@ export interface Piece {
   tier: Tier;
   length: number;
   /**
-   * Solid ground, its surface at `height` (never below 0) and solid all the way down. Where no
-   * span covers, there is a bottomless gap. Neighbouring spans of different heights make a step,
-   * whose side is a wall.
+   * Solid ground, its surface at `height` and solid all the way down. Where no span covers, there
+   * is a bottomless gap. Neighbouring spans of different heights make a step, whose side is a
+   * wall. Ground below 0 is the floor of a pit: a Bird down there is caught, not Fallen.
    */
   ground: readonly Span[];
   /** Low ceilings: solid from `height` all the way up. A Bird that jumps into one bonks its head. */
@@ -103,7 +105,7 @@ const flat = (name: string, length: number): Piece => ({
   ceilings: [],
 });
 
-/** Flat ground the Birds start on, reaching well behind the start. #6 puts the Opening after it. */
+/** Flat ground the Birds start on, reaching well behind the start; the Opening replaces it when played. */
 export const START_PIECE: Piece = flat("start", 40);
 const START_X = -30;
 
@@ -216,12 +218,12 @@ function nextPiece(random: () => number, distance: number, catalog: readonly Pie
 }
 
 /**
- * The endless Course of one Run: the start, then Pieces in random order from `catalog`, the
- * same for the same seed. It extends as far as anything asks.
+ * The endless Course of one Run: `first` (the start, or the Opening), then Pieces in random order
+ * from `catalog`, the same for the same seed. It extends as far as anything asks.
  */
-export function randomCourse(seed: number, catalog: readonly Piece[] = PIECES): Course {
+export function randomCourse(seed: number, catalog: readonly Piece[] = PIECES, first: Piece = START_PIECE): Course {
   const random = seededRandom(seed);
-  const placed: PlacedPiece[] = [{ x: START_X, piece: START_PIECE }];
+  const placed: PlacedPiece[] = [{ x: START_X, piece: first }];
   const end = () => placed.at(-1)!.x + placed.at(-1)!.piece.length;
   return {
     piecesBetween(from, to) {
@@ -234,17 +236,18 @@ export function randomCourse(seed: number, catalog: readonly Piece[] = PIECES): 
   };
 }
 
-const memo = new Map<number, Course>();
+const memo = new Map<string, Course>();
 
 /**
- * The Course for a Run's seed, kept for reuse: the server steps it 30 times a second and the
- * client draws it every frame.
+ * The Course for a Run's seed, starting with the Opening if `opening`, kept for reuse: the server
+ * steps it 30 times a second and the client draws it every frame.
  */
-export function courseForSeed(seed: number): Course {
-  let course = memo.get(seed);
+export function courseForSeed(seed: number, opening = false): Course {
+  const key = `${seed}${opening ? "+opening" : ""}`;
+  let course = memo.get(key);
   if (!course) {
-    course = randomCourse(seed);
-    memo.set(seed, course);
+    course = randomCourse(seed, PIECES, opening ? OPENING : START_PIECE);
+    memo.set(key, course);
     // Only the last few Runs' Courses are kept.
     if (memo.size > 8) memo.delete(memo.keys().next().value!);
   }

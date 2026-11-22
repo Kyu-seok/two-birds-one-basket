@@ -8,14 +8,17 @@ import {
   initialWorld,
   newCourseSeed,
   newRoomRun,
+  RECONNECT_SECONDS,
   playerLeft,
+  playerReturned,
   setReady,
   stepRun,
   partnerOf,
   type Bird,
   type ClientMessage,
-  type Course,
+  type CourseOf,
   type PerBird,
+  type RunEndReason,
   type RunState,
   type ServerMessage,
   voiceSignal,
@@ -72,17 +75,24 @@ function reject(conn: Connection, msg: ServerMessage): null {
 interface Room {
   code: string;
   players: Partial<PerBird<Connection>>;
-  /** Each present player's Browser ID, or null if they sent none. */
+  /**
+   * Each player's Browser ID, or null if they sent none. It outlasts a disconnect: the Bird (and its
+   * Calibration) stays reserved for that browser until `reservedUntil`.
+   */
   browsers: PerBird<string | null>;
+  /** The tick a dropped player's reserved Bird is freed on; null while they are here (or have no Browser ID). */
+  reservedUntil: PerBird<number | null>;
   world: WorldState;
   thrust: PerBird<number>;
   pings: PerBird<number | null>;
   /** Which players have calibrated; it lasts for every Run while they stay in the Room. */
   calibrated: PerBird<boolean>;
   run: RunState;
+  /** A player asked for the next Run to start with the Opening again. */
+  replayOpening: boolean;
   tick: number;
-  /** The tick the current Run started on, and the pair playing it; null outside a Run. */
-  runStart: { tick: number; pair: Pair | null } | null;
+  /** How many ticks the current Run has been running (pauses don't count), and the pair playing it; null outside a Run. */
+  runStart: { ticks: number; pair: Pair | null } | null;
   stopLoop: (() => void) | null;
 }
 
@@ -98,13 +108,14 @@ interface Deps {
   now?: () => number;
   /** A new Course seed, for each Run. */
   makeSeed?: () => number;
-  /** The Course for a seed. Tests swap in a fixed Course. */
-  courseOf?: (seed: number) => Course;
+  /** The Course for a seed, with or without the Opening. Tests swap in a fixed Course. */
+  courseOf?: CourseOf;
 }
 
 /** The Browser IDs of the two players in the Room, or null unless both are here and sent one. */
-export function pairOf(room: { browsers: PerBird<string | null> }): Pair | null {
+export function pairOf(room: Pick<Room, "browsers" | "players">): Pair | null {
   const { pink, blue } = room.browsers;
+  if (!room.players.pink || !room.players.blue) return null;
   return pink && blue && pink !== blue ? [pink, blue] : null;
 }
 
@@ -121,26 +132,49 @@ function sendScores(room: Room, scores: ScoreStore) {
   });
 }
 
+/**
+ * Whether a Run starting now plays the Opening: on a Team's first Run, for players with no Team
+ * yet, or when a player asked to replay it.
+ */
+function playsOpening(room: Room, scores: ScoreStore): boolean {
+  if (room.replayOpening) return true;
+  const pair = pairOf(room);
+  return !pair || !scores.teamOf(pair) || scores.history(pair).length === 0;
+}
+
+/** Lets anyone take a Bird its player has left, forgetting their Calibration. */
+function freeBird(room: Room, bird: Bird) {
+  room.browsers[bird] = null;
+  room.reservedUntil[bird] = null;
+  room.calibrated[bird] = false;
+}
+
+/** Records the Run that just ended in the Team History (and maybe the Top 10). */
+function saveRun(room: Room, scores: ScoreStore, now: () => number, end: RunEndReason, distance: number) {
+  const { runStart } = room;
+  if (!runStart) return;
+  scores.saveRun(runStart.pair, { distance, end, seconds: runStart.ticks / TICK_HZ, endedAt: now() });
+  room.runStart = null;
+}
+
 function tick(room: Room, deps: Deps, scores: ScoreStore, now: () => number) {
   const before = room.run.phase;
-  const seed = (deps.makeSeed ?? newCourseSeed)();
+  const nextCourse = () => ({ seed: (deps.makeSeed ?? newCourseSeed)(), opening: playsOpening(room, scores) });
   const dt = TICK_MS / 1000;
-  const { run, world } = stepRun(room.run, room.world, room.thrust, dt, seed, deps.courseOf ?? courseForSeed);
+  const { run, world } = stepRun(room.run, room.world, room.thrust, dt, nextCourse, deps.courseOf ?? courseForSeed);
   room.run = run;
   room.world = world;
   room.tick++;
-  if (before !== "running" && run.phase === "running") {
-    room.runStart = { tick: room.tick, pair: pairOf(room) };
+  // A replay asked for is used up by the Run it starts.
+  if (before !== "countdown" && run.phase === "countdown") room.replayOpening = false;
+  for (const bird of BIRDS) {
+    const until = room.reservedUntil[bird];
+    if (until !== null && room.tick >= until) freeBird(room, bird);
   }
-  const { runStart } = room;
-  if (before === "running" && run.phase === "ended" && runStart) {
-    scores.saveRun(runStart.pair, {
-      distance: run.distance,
-      end: run.end,
-      seconds: (room.tick - runStart.tick) / TICK_HZ,
-      endedAt: now(),
-    });
-    room.runStart = null;
+  if (before === "countdown" && run.phase === "running") room.runStart = { ticks: 0, pair: pairOf(room) };
+  else if (before === "running" && room.runStart) room.runStart.ticks++;
+  if (before !== "ended" && run.phase === "ended") {
+    saveRun(room, scores, now, run.end, run.distance);
     sendScores(room, scores);
   }
   broadcast(room, {
@@ -152,6 +186,7 @@ function tick(room: Room, deps: Deps, scores: ScoreStore, now: () => number) {
     present: { pink: !!room.players.pink, blue: !!room.players.blue },
     calibrated: { ...room.calibrated },
     run: room.run,
+    replayOpening: room.replayOpening,
   });
 }
 
@@ -169,11 +204,13 @@ export function createRoomRegistry(deps: Deps): RoomRegistry {
         code,
         players: {},
         browsers: { pink: null, blue: null },
+        reservedUntil: { pink: null, blue: null },
         world: initialWorld(),
         thrust: { pink: 0, blue: 0 },
         pings: { pink: null, blue: null },
         calibrated: { pink: false, blue: false },
         run: newRoomRun(),
+        replayOpening: false,
         tick: 0,
         runStart: null,
         stopLoop: null,
@@ -183,11 +220,17 @@ export function createRoomRegistry(deps: Deps): RoomRegistry {
     connect(roomCode, conn, browser) {
       const room = byCode.get(roomCode);
       if (!room) return reject(conn, { type: "roomNotFound" });
-      const bird = BIRDS.find((b) => !room.players[b]);
+      const id = browserId(browser);
+      // A returning browser gets its own Bird back; anyone else gets a Bird nobody has reserved.
+      const bird =
+        BIRDS.find((b) => !room.players[b] && id !== null && room.browsers[b] === id) ??
+        BIRDS.find((b) => !room.players[b] && room.browsers[b] === null);
       if (!bird) return reject(conn, { type: "roomFull" });
 
       room.players[bird] = conn;
-      room.browsers[bird] = browserId(browser);
+      room.browsers[bird] = id;
+      room.reservedUntil[bird] = null;
+      room.run = playerReturned(room.run, bird);
       conn.send({ type: "joined", bird, roomCode });
       sendScores(room, scores);
       room.stopLoop ??= deps.scheduler.every(TICK_MS, () => tick(room, deps, scores, now));
@@ -212,6 +255,9 @@ export function createRoomRegistry(deps: Deps): RoomRegistry {
               break;
             case "ready":
               room.run = setReady(room.run, bird, msg.value === true && room.calibrated[bird]);
+              break;
+            case "replayOpening":
+              room.replayOpening = msg.value === true;
               break;
             case "signal": {
               const signal = voiceSignal(msg.signal);
@@ -238,12 +284,16 @@ export function createRoomRegistry(deps: Deps): RoomRegistry {
         disconnect() {
           if (room.players[bird] !== conn) return;
           delete room.players[bird];
-          room.browsers[bird] = null;
           room.thrust[bird] = 0;
           room.pings[bird] = null;
-          room.calibrated[bird] = false;
+          // Their Bird waits for their browser as long as a paused Run would; without a Browser ID
+          // nobody can come back to it, so it is free at once.
+          if (room.browsers[bird] === null) freeBird(room, bird);
+          else room.reservedUntil[bird] = room.tick + RECONNECT_SECONDS * TICK_HZ;
           room.run = playerLeft(room.run, bird);
           if (!room.players.pink && !room.players.blue) {
+            // The Room ends with a Run still on: nobody is left to come back to it.
+            if (room.run.phase === "paused") saveRun(room, scores, now, "abandoned", room.run.distance);
             room.stopLoop?.();
             byCode.delete(room.code);
           }
