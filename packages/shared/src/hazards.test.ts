@@ -124,3 +124,36 @@ describe("a gust", () => {
     expect(into - 4).toBeLessThan(calm - waited.birds.pink.x - 0.5);
   });
 });
+
+describe("swinging on the Rope", () => {
+  // A plateau 2.4 m up ending at 10 m, a 3 m gap, and ground from 13 m: too wide to jump.
+  const course = courseOf([
+    { from: -10, to: 10, height: 2.4 },
+    { from: 13, to: 30, height: 0 },
+  ]);
+
+  /** Pink anchors at the lip; Blue has dropped off it and hangs against the wall. */
+  function blueHanging(): WorldState {
+    const off = run(standing(10, 10, 2.4), { pink: 0, blue: 0.3 }, 0.3, course);
+    return run(off, SILENT, 2, course);
+  }
+
+  it("a Bird hanging silent stays against the wall below its partner", () => {
+    const w = blueHanging();
+    expect(w.birds.blue.y).toBeLessThan(0);
+    expect(w.birds.blue.x).toBeCloseTo(10, 1);
+    expect(w.fallen).toBe(false);
+  });
+
+  it("a jump-level voice swings it out across the gap, where it catches the far ledge", () => {
+    const w = run(blueHanging(), { pink: 0, blue: 0.7 }, 3, course);
+    expect(w.birds.blue).toMatchObject({ y: 0, grounded: true });
+    expect(w.birds.blue.x).toBeGreaterThanOrEqual(13);
+  });
+
+  it("a walking-level voice still climbs back up to its partner instead", () => {
+    const w = run(blueHanging(), { pink: 0, blue: 0.4 }, 6, course);
+    expect(w.birds.blue).toMatchObject({ y: 2.4, grounded: true });
+    expect(w.birds.blue.x).toBeLessThanOrEqual(10);
+  });
+});

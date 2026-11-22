@@ -66,6 +66,13 @@ export const PHYSICS = {
   ledgeGraceSeconds: 0.2,
   /** A climbing Bird can't pull itself closer than this to its partner. */
   ropeLengthMin: 0.5,
+  /**
+   * How hard a jump-level voice pushes a Bird hanging on a taut Rope forward along its swing
+   * (m/s²): enough to swing it from hanging still most of the way up to level with its partner.
+   */
+  swingPush: 10,
+  /** How far below or above a ledge's top a swinging Bird can be and still catch it. */
+  grabReach: 0.5,
 } as const;
 
 function standingBird(x: number): BirdState {
@@ -83,15 +90,17 @@ export function stepWorld(w: WorldState, thrust: Thrusts, dt: number, course: Co
   const before: Around = (x) => layoutAt(course, x - NEAR, x + NEAR, w.time, w.crumbling);
   const after: Around = (x) => layoutAt(course, x - NEAR, x + NEAR, time, w.crumbling);
 
-  // A hanging Bird climbs hand over hand, at its walking pace, taking in Rope.
+  // A hanging Bird climbs hand over hand, at its walking pace, taking in Rope. A jump-level voice
+  // swings it instead (see `swung`).
   let ropeLength = w.ropeLength;
   for (const bird of BIRDS) {
-    if (isHanging(w.birds, bird)) ropeLength -= walkSpeed(thrust[bird]) * dt;
+    const climbing = isHanging(w.birds, bird) || isSwinging(w.birds[bird], w.birds[partnerOf(bird)], w.ropeLength);
+    if (climbing && thrust[bird] < PHYSICS.jumpThreshold) ropeLength -= walkSpeed(thrust[bird]) * dt;
   }
   ropeLength = Math.max(PHYSICS.ropeLengthMin, ropeLength);
 
   const step = (bird: Bird) => {
-    const b = w.birds[bird];
+    const b = swung(w, bird, thrust[bird], dt);
     return stepBird(b, thrust[bird], dt, after, carried(b, before, after), windAt(after(b.x), b.x, time));
   };
   const birds = { pink: step("pink"), blue: step("blue") };
@@ -101,6 +110,7 @@ export function stepWorld(w: WorldState, thrust: Thrusts, dt: number, course: Co
   for (const bird of BIRDS) {
     if (ropeLength <= PHYSICS.ropeLengthMin) climbOverLip(birds[bird], birds[partnerOf(bird)], after);
   }
+  for (const bird of BIRDS) catchLedge(birds[bird], birds[partnerOf(bird)], ropeLength, after);
   return {
     birds,
     ropeLength,
@@ -112,6 +122,45 @@ export function stepWorld(w: WorldState, thrust: Thrusts, dt: number, course: Co
 
 /** The Course near `x` at one moment of this tick. */
 type Around = (x: number) => Layout;
+
+/** How much slack still counts as a taut Rope. */
+const TAUT = 0.05;
+
+/** A Bird off the ground, below its partner standing on ground, at the end of a taut Rope. */
+function isSwinging(b: BirdState, anchor: BirdState, length: number): boolean {
+  return !b.grounded && anchor.grounded && b.y < anchor.y && Math.hypot(b.x - anchor.x, b.y - anchor.y) >= length - TAUT;
+}
+
+/**
+ * A swinging Bird with a jump-level voice pushes itself forward along its swing, across the Rope.
+ * This is how it gets across a gap too wide to jump while its partner anchors.
+ */
+function swung(w: WorldState, bird: Bird, thrust: number, dt: number): BirdState {
+  const b = w.birds[bird];
+  const anchor = w.birds[partnerOf(bird)];
+  if (thrust < PHYSICS.jumpThreshold || !isSwinging(b, anchor, w.ropeLength)) return b;
+  const dist = Math.hypot(b.x - anchor.x, b.y - anchor.y);
+  // Across the Rope, the way the Course goes.
+  let tx = -(b.y - anchor.y) / dist;
+  let ty = (b.x - anchor.x) / dist;
+  if (tx < 0) (tx = -tx), (ty = -ty);
+  const push = PHYSICS.swingPush * dt;
+  return { ...b, vx: b.vx + tx * push, vy: b.vy + ty * push };
+}
+
+/**
+ * A swinging Bird that reaches the top of a ledge other than its partner's catches it and stands
+ * there: within `grabReach` below it (its wall) or above it.
+ */
+function catchLedge(b: BirdState, anchor: BirdState, length: number, around: Around) {
+  if (!isSwinging(b, anchor, length)) return;
+  const near = around(b.x);
+  const home = standingOn(near, anchor.x, anchor.y);
+  const ledge = near.ground.find(
+    (s) => s.key !== home?.key && b.x >= s.from && b.x <= s.to && Math.abs(b.y - s.height) <= PHYSICS.grabReach,
+  );
+  if (ledge) land(b, ledge.height);
+}
 
 /** How far the moving platform a Bird stands on carries it this tick. */
 function carried(b: BirdState, before: Around, after: Around): number {
@@ -179,8 +228,17 @@ function hasDropped(b: BirdState, around: Around): boolean {
 
 /** A climber that has taken in all the Rope it can scrambles onto the lip on its partner's side. */
 function climbOverLip(b: BirdState, partner: BirdState, around: Around) {
-  if (b.y >= 0 || !partner.grounded) return;
+  if (!partner.grounded || b.grounded) return;
   const near = around(b.x);
+  if (b.y >= 0) {
+    // Up the side of raised ground: onto the partner's ledge, at its edge.
+    const ledge = standingOn(near, partner.x, partner.y);
+    if (!ledge || b.y >= partner.y) return;
+    land(b, ledge.height);
+    b.x = Math.min(ledge.to, Math.max(ledge.from, b.x));
+    b.vx = 0;
+    return;
+  }
   const gap = nearestGap(near, b.x);
   if (!gap) return;
   const lip = partner.x <= gap.start ? gap.start : gap.end;
