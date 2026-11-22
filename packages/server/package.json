@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/main.ts",
-    "start": "tsx src/main.ts"
+    "start": "tsx src/main.ts",
+    "bot": "tsx src/bot.ts"
   },
   "dependencies": {
     "@tbob/shared": "*",
