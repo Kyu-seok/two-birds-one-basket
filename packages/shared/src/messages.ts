@@ -1,13 +1,9 @@
-import type { RopeState } from "./physics.ts";
-
-export type Side = "left" | "right";
-export const SIDES: readonly Side[] = ["left", "right"];
-
-export type PerSide<T> = Record<Side, T>;
+import type { Bird, PerBird } from "./bird.ts";
+import type { WorldState } from "./physics.ts";
 
 /** Client → server. */
 export type ClientMessage =
-  /** Latest Thrust for the sender's Side, 0..1. Sent ~30 times a second. */
+  /** Latest Thrust for the sender's Bird, 0..1. Sent ~30 times a second. */
   | { type: "thrust"; value: number }
   /** Round-trip probe; the server answers with a pong carrying the same `t`. */
   | { type: "ping"; t: number }
@@ -16,17 +12,19 @@ export type ClientMessage =
 
 /** Server → client. */
 export type ServerMessage =
-  | { type: "joined"; side: Side; roomCode: string }
+  | { type: "joined"; bird: Bird; roomCode: string }
   | { type: "roomFull" }
   | { type: "roomNotFound" }
   | { type: "pong"; t: number }
+  /** Both Birds fell; the test Course starts again. */
+  | { type: "fallen" }
   | {
       type: "state";
       tick: number;
-      rope: RopeState;
-      thrust: PerSide<number>;
-      pings: PerSide<number | null>;
-      present: PerSide<boolean>;
+      world: WorldState;
+      thrust: PerBird<number>;
+      pings: PerBird<number | null>;
+      present: PerBird<boolean>;
     };
 
 export const TICK_HZ = 30;

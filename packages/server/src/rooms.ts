@@ -1,13 +1,14 @@
 import {
-  SIDES,
+  BIRDS,
+  TEST_COURSE,
   TICK_MS,
-  initialRope,
-  stepRope,
-  type RopeState,
+  initialWorld,
+  stepWorld,
+  type Bird,
   type ClientMessage,
-  type PerSide,
+  type PerBird,
   type ServerMessage,
-  type Side,
+  type WorldState,
 } from "@tbob/shared";
 
 /** One player's link to the server (a WebSocket in production). */
@@ -54,26 +55,34 @@ function reject(conn: Connection, msg: ServerMessage): null {
 
 interface Room {
   code: string;
-  players: Partial<Record<Side, Connection>>;
-  rope: RopeState;
-  thrust: PerSide<number>;
-  pings: PerSide<number | null>;
+  players: Partial<PerBird<Connection>>;
+  world: WorldState;
+  thrust: PerBird<number>;
+  pings: PerBird<number | null>;
   tick: number;
   stopLoop: (() => void) | null;
 }
 
+function broadcast(room: Room, msg: ServerMessage) {
+  for (const bird of BIRDS) room.players[bird]?.send(msg);
+}
+
 function tick(room: Room) {
-  room.rope = stepRope(room.rope, room.thrust, TICK_MS / 1000);
+  room.world = stepWorld(room.world, room.thrust, TICK_MS / 1000, TEST_COURSE);
   room.tick++;
-  const msg: ServerMessage = {
+  if (room.world.fallen) {
+    // Until the Run lifecycle exists, Fallen just starts the test Course again.
+    room.world = initialWorld();
+    broadcast(room, { type: "fallen" });
+  }
+  broadcast(room, {
     type: "state",
     tick: room.tick,
-    rope: room.rope,
+    world: room.world,
     thrust: { ...room.thrust },
     pings: { ...room.pings },
-    present: { left: !!room.players.left, right: !!room.players.right },
-  };
-  for (const side of SIDES) room.players[side]?.send(msg);
+    present: { pink: !!room.players.pink, blue: !!room.players.blue },
+  });
 }
 
 export function createRoomRegistry(deps: { scheduler: Scheduler; makeCode?: () => string }): RoomRegistry {
@@ -87,9 +96,9 @@ export function createRoomRegistry(deps: { scheduler: Scheduler; makeCode?: () =
       byCode.set(code, {
         code,
         players: {},
-        rope: initialRope(),
-        thrust: { left: 0, right: 0 },
-        pings: { left: null, right: null },
+        world: initialWorld(),
+        thrust: { pink: 0, blue: 0 },
+        pings: { pink: null, blue: null },
         tick: 0,
         stopLoop: null,
       });
@@ -98,34 +107,34 @@ export function createRoomRegistry(deps: { scheduler: Scheduler; makeCode?: () =
     connect(roomCode, conn) {
       const room = byCode.get(roomCode);
       if (!room) return reject(conn, { type: "roomNotFound" });
-      const side = SIDES.find((s) => !room.players[s]);
-      if (!side) return reject(conn, { type: "roomFull" });
+      const bird = BIRDS.find((b) => !room.players[b]);
+      if (!bird) return reject(conn, { type: "roomFull" });
 
-      room.players[side] = conn;
-      conn.send({ type: "joined", side, roomCode });
+      room.players[bird] = conn;
+      conn.send({ type: "joined", bird, roomCode });
       room.stopLoop ??= deps.scheduler.every(TICK_MS, () => tick(room));
 
       return {
         receive(msg) {
-          if (room.players[side] !== conn) return;
+          if (room.players[bird] !== conn) return;
           switch (msg.type) {
             case "thrust":
-              room.thrust[side] = toUnit(msg.value);
+              room.thrust[bird] = toUnit(msg.value);
               break;
             case "ping":
               conn.send({ type: "pong", t: msg.t });
               break;
             case "reportPing":
-              room.pings[side] = Number.isFinite(msg.ms) ? Math.max(0, Math.round(msg.ms)) : null;
+              room.pings[bird] = Number.isFinite(msg.ms) ? Math.max(0, Math.round(msg.ms)) : null;
               break;
           }
         },
         disconnect() {
-          if (room.players[side] !== conn) return;
-          delete room.players[side];
-          room.thrust[side] = 0;
-          room.pings[side] = null;
-          if (!room.players.left && !room.players.right) {
+          if (room.players[bird] !== conn) return;
+          delete room.players[bird];
+          room.thrust[bird] = 0;
+          room.pings[bird] = null;
+          if (!room.players.pink && !room.players.blue) {
             room.stopLoop?.();
             byCode.delete(room.code);
           }

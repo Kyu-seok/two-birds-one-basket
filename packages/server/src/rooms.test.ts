@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ServerMessage } from "@tbob/shared";
+import { initialWorld, type ServerMessage } from "@tbob/shared";
 import { createRoomRegistry, type Connection, type Scheduler } from "./rooms.ts";
 
 class FakeConnection implements Connection {
@@ -38,7 +38,7 @@ function setup() {
 }
 
 describe("RoomRegistry", () => {
-  it("creates a Room whose Room Code a player can join, taking a Side", () => {
+  it("creates a Room whose Room Code a player can join, taking the pink Bird", () => {
     const { rooms } = setup();
     const code = rooms.createRoom();
     const a = new FakeConnection();
@@ -46,10 +46,10 @@ describe("RoomRegistry", () => {
     rooms.connect(code, a);
 
     expect(code).toMatch(/^[A-Z0-9]{4,}$/);
-    expect(a.last("joined")).toEqual({ type: "joined", side: "left", roomCode: code });
+    expect(a.last("joined")).toEqual({ type: "joined", bird: "pink", roomCode: code });
   });
 
-  it("gives the second player the other Side and turns a third player away", () => {
+  it("gives the second player the blue Bird and turns a third player away", () => {
     const { rooms } = setup();
     const code = rooms.createRoom();
     const [a, b, c] = [new FakeConnection(), new FakeConnection(), new FakeConnection()];
@@ -58,8 +58,8 @@ describe("RoomRegistry", () => {
     rooms.connect(code, b);
     const third = rooms.connect(code, c);
 
-    expect(a.last("joined")?.side).toBe("left");
-    expect(b.last("joined")?.side).toBe("right");
+    expect(a.last("joined")?.bird).toBe("pink");
+    expect(b.last("joined")?.bird).toBe("blue");
     expect(third).toBeNull();
     expect(c.messages).toEqual([{ type: "roomFull" }]);
     expect(c.closed).toBe(true);
@@ -74,94 +74,117 @@ describe("RoomRegistry", () => {
     expect(a.closed).toBe(true);
   });
 
-  it("simulates the Rope at 30 Hz from both players' Thrust and sends both the same state", () => {
+  it("simulates the world at 30 Hz from both players' Thrust and sends both the same state", () => {
     const { rooms, scheduler } = setup();
     const code = rooms.createRoom();
     const [a, b] = [new FakeConnection(), new FakeConnection()];
-    const left = rooms.connect(code, a)!;
-    const right = rooms.connect(code, b)!;
+    const pink = rooms.connect(code, a)!;
+    const blue = rooms.connect(code, b)!;
 
-    left.receive({ type: "thrust", value: 1 });
-    right.receive({ type: "thrust", value: 1 });
-    scheduler.fire(60);
+    pink.receive({ type: "thrust", value: 0.4 });
+    blue.receive({ type: "thrust", value: 0.4 });
+    scheduler.fire(30);
 
     expect(scheduler.timers.map((t) => t.ms)).toEqual([1000 / 30]);
     const stateA = a.last("state")!;
-    expect(stateA.tick).toBe(60);
-    expect(stateA.rope.y).toBeGreaterThan(1);
-    expect(stateA.thrust).toEqual({ left: 1, right: 1 });
+    expect(stateA.tick).toBe(30);
+    expect(stateA.world.birds.pink.x).toBeGreaterThan(initialWorld().birds.pink.x + 1);
+    expect(stateA.world.birds.blue.x).toBeGreaterThan(initialWorld().birds.blue.x + 1);
+    expect(stateA.thrust).toEqual({ pink: 0.4, blue: 0.4 });
     expect(b.last("state")).toEqual(stateA);
   });
 
-  it("lifts only the Side whose player is giving Thrust, tilting the Rope away from it", () => {
+  it("moves only the Bird whose player is giving Thrust", () => {
     const { rooms, scheduler } = setup();
     const code = rooms.createRoom();
     const [a, b] = [new FakeConnection(), new FakeConnection()];
-    rooms.connect(code, a)!.receive({ type: "thrust", value: 1 });
-    rooms.connect(code, b);
+    rooms.connect(code, a);
+    rooms.connect(code, b)!.receive({ type: "thrust", value: 0.4 });
 
     scheduler.fire(15);
 
-    expect(a.last("state")!.rope.angle).toBeGreaterThan(0);
+    const { pink, blue } = a.last("state")!.world.birds;
+    expect(pink.x).toBe(initialWorld().birds.pink.x);
+    expect(blue.x).toBeGreaterThan(initialWorld().birds.blue.x);
+  });
+
+  it("resets the test Course and tells both players when both Birds have Fallen", () => {
+    const { rooms, scheduler } = setup();
+    const code = rooms.createRoom();
+    const [a, b] = [new FakeConnection(), new FakeConnection()];
+    const pink = rooms.connect(code, a)!;
+    const blue = rooms.connect(code, b)!;
+
+    // Both walk steadily forward, straight into the gap.
+    pink.receive({ type: "thrust", value: 0.4 });
+    blue.receive({ type: "thrust", value: 0.4 });
+    scheduler.fire(30 * 10);
+
+    for (const conn of [a, b]) {
+      const fallenAt = conn.messages.findIndex((m) => m.type === "fallen");
+      expect(fallenAt).toBeGreaterThan(0);
+      const next = conn.messages[fallenAt + 1];
+      expect(next?.type === "state" && next.world).toEqual(initialWorld());
+    }
   });
 
   it("answers a ping with a pong and shows both players' reported pings to both", () => {
     const { rooms, scheduler } = setup();
     const code = rooms.createRoom();
     const [a, b] = [new FakeConnection(), new FakeConnection()];
-    const left = rooms.connect(code, a)!;
-    const right = rooms.connect(code, b)!;
+    const pink = rooms.connect(code, a)!;
+    const blue = rooms.connect(code, b)!;
 
-    left.receive({ type: "ping", t: 123 });
-    left.receive({ type: "reportPing", ms: 5 });
-    right.receive({ type: "reportPing", ms: 80 });
+    pink.receive({ type: "ping", t: 123 });
+    pink.receive({ type: "reportPing", ms: 5 });
+    blue.receive({ type: "reportPing", ms: 80 });
     scheduler.fire();
 
     expect(a.last("pong")).toEqual({ type: "pong", t: 123 });
     expect(b.last("pong")).toBeUndefined();
-    expect(a.last("state")!.pings).toEqual({ left: 5, right: 80 });
-    expect(b.last("state")!.pings).toEqual({ left: 5, right: 80 });
+    expect(a.last("state")!.pings).toEqual({ pink: 5, blue: 80 });
+    expect(b.last("state")!.pings).toEqual({ pink: 5, blue: 80 });
   });
 
   it("clamps Thrust from a client into 0..1", () => {
     const { rooms, scheduler } = setup();
     const code = rooms.createRoom();
-    const left = rooms.connect(code, new FakeConnection())!;
+    const pink = rooms.connect(code, new FakeConnection())!;
     const b = new FakeConnection();
-    const right = rooms.connect(code, b)!;
+    const blue = rooms.connect(code, b)!;
 
-    left.receive({ type: "thrust", value: 50 });
-    right.receive({ type: "thrust", value: Number.NaN });
+    pink.receive({ type: "thrust", value: 50 });
+    blue.receive({ type: "thrust", value: Number.NaN });
     scheduler.fire();
 
-    expect(b.last("state")!.thrust).toEqual({ left: 1, right: 0 });
+    expect(b.last("state")!.thrust).toEqual({ pink: 1, blue: 0 });
   });
 
-  it("frees a Side when its player leaves, so someone can take it again", () => {
+  it("frees a Bird when its player leaves, so someone can take it again", () => {
     const { rooms, scheduler } = setup();
     const code = rooms.createRoom();
     const [a, b, c] = [new FakeConnection(), new FakeConnection(), new FakeConnection()];
-    const left = rooms.connect(code, a)!;
+    const pink = rooms.connect(code, a)!;
     rooms.connect(code, b);
-    left.receive({ type: "thrust", value: 1 });
+    pink.receive({ type: "thrust", value: 1 });
 
-    left.disconnect();
+    pink.disconnect();
     scheduler.fire();
-    expect(b.last("state")!.present).toEqual({ left: false, right: true });
-    expect(b.last("state")!.thrust.left).toBe(0);
+    expect(b.last("state")!.present).toEqual({ pink: false, blue: true });
+    expect(b.last("state")!.thrust.pink).toBe(0);
 
     rooms.connect(code, c);
-    expect(c.last("joined")?.side).toBe("left");
+    expect(c.last("joined")?.bird).toBe("pink");
   });
 
   it("ends the Room when both players have left", () => {
     const { rooms, scheduler } = setup();
     const code = rooms.createRoom();
-    const left = rooms.connect(code, new FakeConnection())!;
-    const right = rooms.connect(code, new FakeConnection())!;
+    const pink = rooms.connect(code, new FakeConnection())!;
+    const blue = rooms.connect(code, new FakeConnection())!;
 
-    left.disconnect();
-    right.disconnect();
+    pink.disconnect();
+    blue.disconnect();
 
     expect(scheduler.timers.every((t) => t.cancelled)).toBe(true);
     const late = new FakeConnection();

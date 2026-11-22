@@ -1,14 +1,15 @@
 /**
- * Partner bot for testing alone: joins a Room as the other Side and sends Thrust
+ * Partner bot for testing alone: joins a Room as the other Bird and sends Thrust
  * you control from the keyboard, so one person can play with a real mic in one tab.
  *
  *   npm run bot                 create a Room, print its link, and join it
  *   npm run bot -- ABCDE        join an existing Room
  *
  * Keys: 0-9 set Thrust 0.0-0.9, f = full, w = slow wave 0..1, q = quit.
+ * Below 0.6 the Bird walks (0 stands still); 6-9 and f jump.
  */
 import { WebSocket } from "ws";
-import { TICK_MS, type ServerMessage } from "@tbob/shared";
+import { TICK_MS, type BirdState, type ServerMessage } from "@tbob/shared";
 
 const SERVER = process.env.SERVER ?? "http://localhost:8100";
 const CLIENT = process.env.CLIENT ?? "http://localhost:5173";
@@ -30,7 +31,7 @@ async function main() {
     const msg = JSON.parse(String(data)) as ServerMessage;
     switch (msg.type) {
       case "joined":
-        console.log(`Bot joined as ${msg.side}. Keys: 0-9 Thrust, f full, w wave, q quit.`);
+        console.log(`Bot joined as the ${msg.bird} Bird. Keys: 0-9 Thrust, f full, w wave, q quit.`);
         break;
       case "roomFull":
       case "roomNotFound":
@@ -39,12 +40,16 @@ async function main() {
       case "pong":
         ws.send(JSON.stringify({ type: "reportPing", ms: Math.round(performance.now() - msg.t) }));
         break;
+      case "fallen":
+        console.log("\nFallen: the test Course starts again.");
+        break;
       case "state": {
-        const b = msg.rope;
+        const { pink, blue } = msg.world.birds;
+        const at = (b: BirdState) => `${b.x.toFixed(1)},${b.y.toFixed(1)}`;
         status =
           `bot Thrust ${thrust.toFixed(2)}${wave ? " (wave)" : ""} | ` +
-          `Thrust L ${msg.thrust.left.toFixed(2)} R ${msg.thrust.right.toFixed(2)} | ` +
-          `Rope x ${b.x.toFixed(1)} y ${b.y.toFixed(1)} tilt ${((b.angle * 180) / Math.PI).toFixed(0)}°`;
+          `Thrust pink ${msg.thrust.pink.toFixed(2)} blue ${msg.thrust.blue.toFixed(2)} | ` +
+          `pink ${at(pink)} blue ${at(blue)} Rope ${msg.world.ropeLength.toFixed(1)} m`;
         break;
       }
     }

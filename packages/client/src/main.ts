@@ -5,9 +5,9 @@ import {
   TICK_MS,
   loudnessToThrust,
   rangeForSensitivity,
-  type RopeState,
+  type Bird,
   type ServerMessage,
-  type Side,
+  type WorldState,
 } from "@tbob/shared";
 import { openMic, type Mic } from "./mic.ts";
 import { createRoom, joinRoom, type RoomSocket } from "./net.ts";
@@ -34,7 +34,7 @@ function landing() {
   const code = /^[A-Z0-9]{1,12}$/.test(raw) ? raw : null;
   if (code) {
     showPanel(`<p>Join Room <span class="code">${code}</span></p>
-      <p>Your voice lifts your Bird. No need to shout.</p>
+      <p>Talk to walk your Bird; get louder to jump. No need to shout.</p>
       <button id="enter">Join with mic</button>`);
     document.getElementById("enter")!.onclick = () => enter(code);
     return;
@@ -64,7 +64,10 @@ async function enter(roomCode: string) {
     return;
   }
 
-  let mySide: Side | null = null;
+  let myBird: Bird | null = null;
+  /** Seconds left to show the Fallen banner. */
+  let fallenBanner = 0;
+  let distance = 0;
   let prev: { msg: StateMsg; at: number } | null = null;
   let latest: { msg: StateMsg; at: number } | null = null;
   let socket: RoomSocket | null = null;
@@ -74,7 +77,7 @@ async function enter(roomCode: string) {
     (msg) => {
       switch (msg.type) {
         case "joined":
-          mySide = msg.side;
+          myBird = msg.bird;
           panel.hidden = true;
           canvas.hidden = false;
           start();
@@ -91,6 +94,13 @@ async function enter(roomCode: string) {
           socket?.send({ type: "reportPing", ms: rtt });
           break;
         }
+        case "fallen":
+          // The Course reset: don't smooth the Birds back across the whole Course.
+          prev = null;
+          latest = null;
+          fallenBanner = 2;
+          distance = 0;
+          break;
         case "state":
           prev = latest;
           latest = { msg, at: performance.now() };
@@ -98,14 +108,13 @@ async function enter(roomCode: string) {
       }
     },
     () => {
-      if (mySide) showPanel(`<p class="error">Disconnected from the server.</p><button onclick="location.reload()">Rejoin</button>`);
+      if (myBird) showPanel(`<p class="error">Disconnected from the server.</p><button onclick="location.reload()">Rejoin</button>`);
     },
   );
 
   function start() {
     const draw = createRenderer(canvas);
     let myLoudness = 0;
-    let height = 0;
 
     // Two tabs on one machine share one mic, so holding Space forces full Thrust in this tab
     // to test uneven Thrust by hand.
@@ -134,19 +143,23 @@ async function enter(roomCode: string) {
       myLoudness = mic.loudness();
       const myThrust = currentThrust();
 
-      if (latest && mySide) {
-        const rope = prev ? interpolate(prev, latest, now) : latest.msg.rope;
+      fallenBanner = Math.max(0, fallenBanner - dt);
+
+      if (latest && myBird) {
+        const world = prev ? interpolate(prev, latest, now) : latest.msg.world;
         const s = latest.msg;
-        height = Math.max(height, s.rope.y);
+        // The Bird behind sets the Distance.
+        distance = Math.max(distance, Math.min(s.world.birds.pink.x, s.world.birds.blue.x));
         draw({
-          height,
-          rope,
-          thrust: { ...s.thrust, [mySide]: myThrust },
+          world,
+          distance,
+          thrust: { ...s.thrust, [myBird]: myThrust },
           present: s.present,
-          mySide,
+          myBird,
           myLoudness,
           pings: s.pings,
           roomCode,
+          fallenBanner,
           dt,
         });
       }
@@ -192,24 +205,22 @@ function setupSensitivity() {
   return { value: () => value };
 }
 
-/** Smooths between the last two server states, rendering one tick behind the newest. */
+/** Smooths the Birds between the last two server states, rendering one tick behind the newest. */
 function interpolate(
   a: { msg: StateMsg; at: number },
   b: { msg: StateMsg; at: number },
   now: number,
-): RopeState {
+): WorldState {
   const t = Math.min(1, Math.max(0, (now - b.at) / TICK_MS));
-  const p = a.msg.rope;
-  const q = b.msg.rope;
   const lerp = (x: number, y: number) => x + (y - x) * t;
-  return {
-    x: lerp(p.x, q.x),
-    y: lerp(p.y, q.y),
-    vx: q.vx,
-    vy: q.vy,
-    angle: lerp(p.angle, q.angle),
-    angularVelocity: q.angularVelocity,
-  };
+  const p = a.msg.world;
+  const q = b.msg.world;
+  const bird = (who: Bird) => ({
+    ...q.birds[who],
+    x: lerp(p.birds[who].x, q.birds[who].x),
+    y: lerp(p.birds[who].y, q.birds[who].y),
+  });
+  return { ...q, birds: { pink: bird("pink"), blue: bird("blue") }, ropeLength: lerp(p.ropeLength, q.ropeLength) };
 }
 
 landing();
