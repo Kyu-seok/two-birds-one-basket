@@ -1,11 +1,14 @@
+import { followCamera, type Point } from "./camera.ts";
 import {
   BIRDS,
   PHYSICS,
-  TEST_COURSE,
   loudnessToDb,
+  runCourse,
   type Bird,
   type BirdState,
+  type Course,
   type PerBird,
+  type Span,
   type RunState,
   type WorldState,
 } from "@tbob/shared";
@@ -27,6 +30,8 @@ const COLORS = {
   ground: "#b8e0b0",
   groundEdge: "#8cc485",
   gap: "#3d3a4bcc",
+  ceiling: "#9a8f9e",
+  ceilingEdge: "#7a6f80",
   grid: "#3d3a4b22",
   rope: "#8a5a32",
   bird: BIRD_COLORS,
@@ -53,6 +58,7 @@ export interface Frame {
 export function createRenderer(canvas: HTMLCanvasElement) {
   const ctx = canvas.getContext("2d")!;
   const flapPhase: PerBird<number> = { pink: 0, blue: 0 };
+  let cam: Point | null = null;
 
   function resize() {
     const dpr = window.devicePixelRatio || 1;
@@ -69,9 +75,11 @@ export function createRenderer(canvas: HTMLCanvasElement) {
     const { pink, blue } = f.world.birds;
     for (const bird of BIRDS) flapPhase[bird] += f.dt * (3 + 18 * f.thrust[bird]);
 
-    // One shared camera, centred between the two Birds: the same view on both screens.
-    const camX = (pink.x + blue.x) / 2;
-    const camY = (pink.y + blue.y) / 2;
+    // One shared camera, following the point between the two Birds: the same view on both screens.
+    const target = { x: (pink.x + blue.x) / 2, y: (pink.y + blue.y) / 2 };
+    cam = cam ? followCamera(cam, target, f.dt) : target;
+    const { x: camX, y: camY } = cam;
+    const course = runCourse(f.run);
     const sx = (x: number) => w / 2 + (x - camX) * PX_PER_M;
     const sy = (y: number) => h * 0.6 - (y - camY) * PX_PER_M;
 
@@ -96,8 +104,9 @@ export function createRenderer(canvas: HTMLCanvasElement) {
       ctx.fillText(`${m} m`, sx(m) + 4, sy(0) - 6);
     }
 
-    drawGround(ctx, sx, sy, left, right, h);
-    drawRope(ctx, sx, sy, pink, blue, f.world.ropeLength);
+    const near = spansBetween(course, left, right);
+    drawCourse(ctx, sx, sy, near, left, right, h);
+    drawRope(ctx, sx, sy, pink, blue, f.world.ropeLength, near.ground);
     for (const bird of BIRDS) {
       const b = f.world.birds[bird];
       ctx.save();
@@ -111,36 +120,53 @@ export function createRenderer(canvas: HTMLCanvasElement) {
   };
 }
 
-function drawGround(
+/** The ground and ceilings of the Pieces in view, in Course coordinates. */
+function spansBetween(course: Course, left: number, right: number) {
+  const ground: Span[] = [];
+  const ceilings: Span[] = [];
+  for (const { x, piece } of course.piecesBetween(left, right)) {
+    const place = (s: Span) => ({ from: x + s.from, to: x + s.to, height: s.height });
+    ground.push(...piece.ground.map(place));
+    ceilings.push(...piece.ceilings.map(place));
+  }
+  return { ground, ceilings };
+}
+
+/** The Course from the same Piece data the server collides with: ground, gaps and low ceilings. */
+function drawCourse(
   ctx: CanvasRenderingContext2D,
   sx: (x: number) => number,
   sy: (y: number) => number,
+  near: { ground: Span[]; ceilings: Span[] },
   left: number,
   right: number,
   h: number,
 ) {
+  // Behind everything, below ground level, the gaps: open sky fading to dark.
   const top = sy(0);
-  if (top >= h) return;
-  // Ground runs between the gaps; each gap is open sky fading to dark below.
-  let from = left;
-  const solid = (to: number) => {
-    if (to <= from) return;
-    ctx.fillStyle = COLORS.ground;
-    ctx.fillRect(sx(from), top, sx(to) - sx(from), h - top);
-    ctx.fillStyle = COLORS.groundEdge;
-    ctx.fillRect(sx(from), top, sx(to) - sx(from), 4);
-  };
-  for (const gap of TEST_COURSE.gaps) {
-    if (gap.end < left || gap.start > right) continue;
-    solid(gap.start);
+  if (top < h) {
     const fade = ctx.createLinearGradient(0, top, 0, sy(-GAP_DEPTH));
     fade.addColorStop(0, "#3d3a4b00");
     fade.addColorStop(1, COLORS.gap);
     ctx.fillStyle = fade;
-    ctx.fillRect(sx(gap.start), top, sx(gap.end) - sx(gap.start), h - top);
-    from = gap.end;
+    ctx.fillRect(sx(left), top, sx(right) - sx(left), h - top);
   }
-  solid(right);
+  for (const g of near.ground) {
+    const y = sy(g.height);
+    if (y >= h) continue;
+    ctx.fillStyle = COLORS.ground;
+    ctx.fillRect(sx(g.from), y, sx(g.to) - sx(g.from), h - y);
+    ctx.fillStyle = COLORS.groundEdge;
+    ctx.fillRect(sx(g.from), y, sx(g.to) - sx(g.from), 4);
+  }
+  for (const c of near.ceilings) {
+    const y = sy(c.height);
+    if (y <= 0) continue;
+    ctx.fillStyle = COLORS.ceiling;
+    ctx.fillRect(sx(c.from), 0, sx(c.to) - sx(c.from), y);
+    ctx.fillStyle = COLORS.ceilingEdge;
+    ctx.fillRect(sx(c.from), y - 4, sx(c.to) - sx(c.from), 4);
+  }
 }
 
 /** The Rope between the two Birds' bodies, sagging when it has slack. */
@@ -151,6 +177,7 @@ function drawRope(
   a: BirdState,
   b: BirdState,
   length: number,
+  ground: Span[],
 ) {
   const ax = a.x;
   const ay = a.y + BODY_Y;
@@ -164,9 +191,8 @@ function drawRope(
   let controlY = (ay + by) / 2 - sag * 2;
   // Slack Rope over ground rests on the ground instead of passing through it.
   const midX = (ax + bx) / 2;
-  if (!TEST_COURSE.gaps.some((g) => midX > g.start && midX < g.end)) {
-    controlY = Math.max(controlY, 2 * ROPE_REST_Y - (ay + by) / 2);
-  }
+  const under = ground.filter((g) => midX >= g.from && midX <= g.to).map((g) => g.height);
+  if (under.length) controlY = Math.max(controlY, 2 * (Math.max(...under) + ROPE_REST_Y) - (ay + by) / 2);
   ctx.strokeStyle = COLORS.rope;
   ctx.lineWidth = 3;
   ctx.lineCap = "round";

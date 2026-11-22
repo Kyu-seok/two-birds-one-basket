@@ -1,9 +1,10 @@
 import {
   BIRDS,
-  TEST_COURSE,
   TICK_MS,
   chatText,
+  courseForSeed,
   initialWorld,
+  newCourseSeed,
   newRoomRun,
   playerLeft,
   setReady,
@@ -11,6 +12,7 @@ import {
   partnerOf,
   type Bird,
   type ClientMessage,
+  type Course,
   type PerBird,
   type RunState,
   type ServerMessage,
@@ -77,8 +79,19 @@ function broadcast(room: Room, msg: ServerMessage) {
   for (const bird of BIRDS) room.players[bird]?.send(msg);
 }
 
-function tick(room: Room) {
-  ({ run: room.run, world: room.world } = stepRun(room.run, room.world, room.thrust, TICK_MS / 1000, TEST_COURSE));
+interface Deps {
+  scheduler: Scheduler;
+  makeCode?: () => string;
+  /** A new Course seed, for each Run. */
+  makeSeed?: () => number;
+  /** The Course for a seed. Tests swap in a fixed Course. */
+  courseOf?: (seed: number) => Course;
+}
+
+function tick(room: Room, deps: Deps) {
+  const seed = (deps.makeSeed ?? newCourseSeed)();
+  const dt = TICK_MS / 1000;
+  ({ run: room.run, world: room.world } = stepRun(room.run, room.world, room.thrust, dt, seed, deps.courseOf ?? courseForSeed));
   room.tick++;
   broadcast(room, {
     type: "state",
@@ -92,7 +105,7 @@ function tick(room: Room) {
   });
 }
 
-export function createRoomRegistry(deps: { scheduler: Scheduler; makeCode?: () => string }): RoomRegistry {
+export function createRoomRegistry(deps: Deps): RoomRegistry {
   const makeCode = deps.makeCode ?? randomCode;
   const byCode = new Map<string, Room>();
 
@@ -121,7 +134,7 @@ export function createRoomRegistry(deps: { scheduler: Scheduler; makeCode?: () =
 
       room.players[bird] = conn;
       conn.send({ type: "joined", bird, roomCode });
-      room.stopLoop ??= deps.scheduler.every(TICK_MS, () => tick(room));
+      room.stopLoop ??= deps.scheduler.every(TICK_MS, () => tick(room, deps));
 
       return {
         receive(msg) {

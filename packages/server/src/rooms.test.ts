@@ -189,7 +189,7 @@ describe("Runs in a Room", () => {
     scheduler.fire(30);
     expect(b.last("state")!.run.phase).toBe("countdown");
     scheduler.fire(60);
-    expect(b.last("state")!.run).toEqual({ phase: "running", distance: 0 });
+    expect(b.last("state")!.run).toMatchObject({ phase: "running", distance: 0 });
   });
 
   it("a player who hasn't calibrated can't be Ready, and recalibrating takes Ready back", () => {
@@ -259,9 +259,30 @@ describe("Runs in a Room", () => {
 
     blue.receive({ type: "ready", value: true });
     scheduler.fire(30 * 3);
-    expect(a.last("state")!.run).toEqual({ phase: "running", distance: 0 });
+    expect(a.last("state")!.run).toMatchObject({ phase: "running", distance: 0 });
     expect(a.last("state")!.world).toEqual(initialWorld());
     expect(a.last("state")!.calibrated).toEqual({ pink: true, blue: true });
+  });
+});
+
+describe("the Course", () => {
+  it("each Run is on a new Course, whose seed both players get to build it from", () => {
+    const { scheduler, a, b, pink, blue } = runningRoom();
+    const first = a.last("state")!.run;
+    expect(first.phase).toBe("running");
+    expect(b.last("state")!.run).toEqual(first);
+
+    pink.receive({ type: "thrust", value: 0.4 });
+    blue.receive({ type: "thrust", value: 0.4 });
+    scheduler.fire(30 * 10);
+    pink.receive({ type: "ready", value: true });
+    blue.receive({ type: "ready", value: true });
+    scheduler.fire(30 * 3);
+
+    const second = a.last("state")!.run;
+    expect(second.phase).toBe("running");
+    expect("seed" in second && "seed" in first && second.seed !== first.seed).toBe(true);
+    expect(b.last("state")!.run).toEqual(second);
   });
 });
 

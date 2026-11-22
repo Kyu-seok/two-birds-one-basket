@@ -1,5 +1,5 @@
 /** Test doubles shared by the server's tests: drive a RoomRegistry without sockets or real timers. */
-import { COUNTDOWN_SECONDS, TICK_HZ, type ServerMessage } from "@tbob/shared";
+import { COUNTDOWN_SECONDS, TICK_HZ, courseOf, type ServerMessage } from "@tbob/shared";
 import { createRoomRegistry, type Connection, type Player, type Scheduler } from "./rooms.ts";
 
 export class FakeConnection implements Connection {
@@ -31,9 +31,18 @@ export class FakeScheduler implements Scheduler {
   }
 }
 
+/** Every Run in the tests is on flat ground with one gap, from 8 m to 9.8 m. */
+const TEST_GAP = { start: 8, end: 9.8 };
+const TEST_COURSE = courseOf([
+  { from: -100, to: TEST_GAP.start, height: 0 },
+  { from: TEST_GAP.end, to: 200, height: 0 },
+]);
+
 export function setup() {
   const scheduler = new FakeScheduler();
-  const rooms = createRoomRegistry({ scheduler });
+  // Each tick offers the next seed, so each Run's seed differs.
+  let seed = 0;
+  const rooms = createRoomRegistry({ scheduler, makeSeed: () => ++seed, courseOf: () => TEST_COURSE });
   return { scheduler, rooms };
 }
 
