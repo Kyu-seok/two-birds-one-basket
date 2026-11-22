@@ -4,10 +4,14 @@ import {
   TICK_MS,
   chatText,
   initialWorld,
-  stepWorld,
+  newRoomRun,
+  playerLeft,
+  setReady,
+  stepRun,
   type Bird,
   type ClientMessage,
   type PerBird,
+  type RunState,
   type ServerMessage,
   type WorldState,
 } from "@tbob/shared";
@@ -62,6 +66,7 @@ interface Room {
   pings: PerBird<number | null>;
   /** Which players have calibrated; it lasts for every Run while they stay in the Room. */
   calibrated: PerBird<boolean>;
+  run: RunState;
   tick: number;
   stopLoop: (() => void) | null;
 }
@@ -71,13 +76,8 @@ function broadcast(room: Room, msg: ServerMessage) {
 }
 
 function tick(room: Room) {
-  room.world = stepWorld(room.world, room.thrust, TICK_MS / 1000, TEST_COURSE);
+  ({ run: room.run, world: room.world } = stepRun(room.run, room.world, room.thrust, TICK_MS / 1000, TEST_COURSE));
   room.tick++;
-  if (room.world.fallen) {
-    // Until the Run lifecycle exists, Fallen just starts the test Course again.
-    room.world = initialWorld();
-    broadcast(room, { type: "fallen" });
-  }
   broadcast(room, {
     type: "state",
     tick: room.tick,
@@ -86,6 +86,7 @@ function tick(room: Room) {
     pings: { ...room.pings },
     present: { pink: !!room.players.pink, blue: !!room.players.blue },
     calibrated: { ...room.calibrated },
+    run: room.run,
   });
 }
 
@@ -104,6 +105,7 @@ export function createRoomRegistry(deps: { scheduler: Scheduler; makeCode?: () =
         thrust: { pink: 0, blue: 0 },
         pings: { pink: null, blue: null },
         calibrated: { pink: false, blue: false },
+        run: newRoomRun(),
         tick: 0,
         stopLoop: null,
       });
@@ -134,6 +136,11 @@ export function createRoomRegistry(deps: { scheduler: Scheduler; makeCode?: () =
               break;
             case "calibrated":
               room.calibrated[bird] = msg.value === true;
+              // Recalibrating takes back Ready.
+              if (!room.calibrated[bird]) room.run = setReady(room.run, bird, false);
+              break;
+            case "ready":
+              room.run = setReady(room.run, bird, msg.value === true && room.calibrated[bird]);
               break;
             case "chat": {
               const text = chatText(msg.text);
@@ -148,6 +155,7 @@ export function createRoomRegistry(deps: { scheduler: Scheduler; makeCode?: () =
           room.thrust[bird] = 0;
           room.pings[bird] = null;
           room.calibrated[bird] = false;
+          room.run = playerLeft(room.run, bird);
           if (!room.players.pink && !room.players.blue) {
             room.stopLoop?.();
             byCode.delete(room.code);

@@ -1,5 +1,6 @@
 import type { Bird, PerBird } from "./bird.ts";
 import type { WorldState } from "./physics.ts";
+import type { RunState } from "./run.ts";
 
 /** Client → server. */
 export type ClientMessage =
@@ -12,7 +13,9 @@ export type ClientMessage =
   /** Whether the sender has a Calibration. False while they redo it; only a calibrated player can become Ready. */
   | { type: "calibrated"; value: boolean }
   /** A Room chat message: the silent way to coordinate (ADR 0001). */
-  | { type: "chat"; text: string };
+  | { type: "chat"; text: string }
+  /** Press (or take back) Ready before a Run, or Again on the Run End screen. Only counts once calibrated. */
+  | { type: "ready"; value: boolean };
 
 /** Server → client. */
 export type ServerMessage =
@@ -22,8 +25,6 @@ export type ServerMessage =
   | { type: "pong"; t: number }
   /** A Room chat message from `bird`, sent to both players. */
   | { type: "chat"; bird: Bird; text: string }
-  /** Both Birds fell; the test Course starts again. */
-  | { type: "fallen" }
   | {
       type: "state";
       tick: number;
@@ -33,6 +34,8 @@ export type ServerMessage =
       present: PerBird<boolean>;
       /** Which players have calibrated. */
       calibrated: PerBird<boolean>;
+      /** Where the Room is in its Runs: waiting, countdown, running (with live Distance) or ended. */
+      run: RunState;
     };
 
 export const TICK_HZ = 30;

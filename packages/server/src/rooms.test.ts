@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { initialWorld, type ServerMessage } from "@tbob/shared";
-import { FakeConnection, setup } from "./testing.ts";
+import { FakeConnection, runningRoom, setup } from "./testing.ts";
 
 describe("RoomRegistry", () => {
   it("creates a Room whose Room Code a player can join, taking the pink Bird", () => {
@@ -39,12 +39,9 @@ describe("RoomRegistry", () => {
     expect(a.closed).toBe(true);
   });
 
-  it("simulates the world at 30 Hz from both players' Thrust and sends both the same state", () => {
-    const { rooms, scheduler } = setup();
-    const code = rooms.createRoom();
-    const [a, b] = [new FakeConnection(), new FakeConnection()];
-    const pink = rooms.connect(code, a)!;
-    const blue = rooms.connect(code, b)!;
+  it("simulates the world at 30 Hz from both players' Thrust during a Run and sends both the same state", () => {
+    const { scheduler, a, b, pink, blue } = runningRoom();
+    const before = a.last("state")!.tick;
 
     pink.receive({ type: "thrust", value: 0.4 });
     blue.receive({ type: "thrust", value: 0.4 });
@@ -52,7 +49,7 @@ describe("RoomRegistry", () => {
 
     expect(scheduler.timers.map((t) => t.ms)).toEqual([1000 / 30]);
     const stateA = a.last("state")!;
-    expect(stateA.tick).toBe(30);
+    expect(stateA.tick).toBe(before + 30);
     expect(stateA.world.birds.pink.x).toBeGreaterThan(initialWorld().birds.pink.x + 1);
     expect(stateA.world.birds.blue.x).toBeGreaterThan(initialWorld().birds.blue.x + 1);
     expect(stateA.thrust).toEqual({ pink: 0.4, blue: 0.4 });
@@ -60,37 +57,14 @@ describe("RoomRegistry", () => {
   });
 
   it("moves only the Bird whose player is giving Thrust", () => {
-    const { rooms, scheduler } = setup();
-    const code = rooms.createRoom();
-    const [a, b] = [new FakeConnection(), new FakeConnection()];
-    rooms.connect(code, a);
-    rooms.connect(code, b)!.receive({ type: "thrust", value: 0.4 });
+    const { scheduler, a, blue } = runningRoom();
+    blue.receive({ type: "thrust", value: 0.4 });
 
     scheduler.fire(15);
 
-    const { pink, blue } = a.last("state")!.world.birds;
+    const { pink, blue: blueBird } = a.last("state")!.world.birds;
     expect(pink.x).toBe(initialWorld().birds.pink.x);
-    expect(blue.x).toBeGreaterThan(initialWorld().birds.blue.x);
-  });
-
-  it("resets the test Course and tells both players when both Birds have Fallen", () => {
-    const { rooms, scheduler } = setup();
-    const code = rooms.createRoom();
-    const [a, b] = [new FakeConnection(), new FakeConnection()];
-    const pink = rooms.connect(code, a)!;
-    const blue = rooms.connect(code, b)!;
-
-    // Both walk steadily forward, straight into the gap.
-    pink.receive({ type: "thrust", value: 0.4 });
-    blue.receive({ type: "thrust", value: 0.4 });
-    scheduler.fire(30 * 10);
-
-    for (const conn of [a, b]) {
-      const fallenAt = conn.messages.findIndex((m) => m.type === "fallen");
-      expect(fallenAt).toBeGreaterThan(0);
-      const next = conn.messages[fallenAt + 1];
-      expect(next?.type === "state" && next.world).toEqual(initialWorld());
-    }
+    expect(blueBird.x).toBeGreaterThan(initialWorld().birds.blue.x);
   });
 
   it("answers a ping with a pong and shows both players' reported pings to both", () => {
@@ -172,13 +146,6 @@ describe("RoomRegistry", () => {
     expect(a.last("state")!.calibrated).toEqual({ pink: true, blue: false });
     expect(b.last("state")!.calibrated).toEqual({ pink: true, blue: false });
 
-    // Calibration lasts across Fallen Runs in the Room.
-    pink.receive({ type: "thrust", value: 0.4 });
-    blue.receive({ type: "thrust", value: 0.4 });
-    scheduler.fire(30 * 10);
-    expect(b.last("fallen")).toBeDefined();
-    expect(b.last("state")!.calibrated.pink).toBe(true);
-
     pink.receive({ type: "calibrated", value: false });
     scheduler.fire();
     expect(b.last("state")!.calibrated.pink).toBe(false);
@@ -188,6 +155,113 @@ describe("RoomRegistry", () => {
     rooms.connect(code, c);
     scheduler.fire();
     expect(c.last("state")!.calibrated.pink).toBe(false);
+  });
+});
+
+describe("Runs in a Room", () => {
+  it("holds the Birds still until both players are Ready", () => {
+    const { rooms, scheduler } = setup();
+    const code = rooms.createRoom();
+    const a = new FakeConnection();
+    const pink = rooms.connect(code, a)!;
+    const blue = rooms.connect(code, new FakeConnection())!;
+    pink.receive({ type: "calibrated", value: true });
+    blue.receive({ type: "calibrated", value: true });
+    pink.receive({ type: "ready", value: true });
+    pink.receive({ type: "thrust", value: 1 });
+
+    scheduler.fire(30 * 5);
+
+    expect(a.last("state")!.run).toEqual({ phase: "waiting", ready: { pink: true, blue: false } });
+    expect(a.last("state")!.world).toEqual(initialWorld());
+  });
+
+  it("counts down 3-2-1 once both are Ready, then starts the Run", () => {
+    const { rooms, scheduler } = setup();
+    const code = rooms.createRoom();
+    const [a, b] = [new FakeConnection(), new FakeConnection()];
+    const pink = rooms.connect(code, a)!;
+    const blue = rooms.connect(code, b)!;
+    for (const p of [pink, blue]) p.receive({ type: "calibrated", value: true });
+    pink.receive({ type: "ready", value: true });
+    blue.receive({ type: "ready", value: true });
+
+    scheduler.fire(30);
+    expect(b.last("state")!.run.phase).toBe("countdown");
+    scheduler.fire(60);
+    expect(b.last("state")!.run).toEqual({ phase: "running", distance: 0 });
+  });
+
+  it("a player who hasn't calibrated can't be Ready, and recalibrating takes Ready back", () => {
+    const { rooms, scheduler } = setup();
+    const code = rooms.createRoom();
+    const a = new FakeConnection();
+    const pink = rooms.connect(code, a)!;
+    rooms.connect(code, new FakeConnection());
+
+    pink.receive({ type: "ready", value: true });
+    scheduler.fire();
+    expect(a.last("state")!.run).toMatchObject({ ready: { pink: false } });
+
+    pink.receive({ type: "calibrated", value: true });
+    pink.receive({ type: "ready", value: true });
+    scheduler.fire();
+    expect(a.last("state")!.run).toMatchObject({ ready: { pink: true } });
+
+    pink.receive({ type: "calibrated", value: false });
+    scheduler.fire();
+    expect(a.last("state")!.run).toMatchObject({ ready: { pink: false } });
+  });
+
+  it("a player leaving takes back their Ready and stops a countdown", () => {
+    const { rooms, scheduler } = setup();
+    const code = rooms.createRoom();
+    const a = new FakeConnection();
+    const pink = rooms.connect(code, a)!;
+    const blue = rooms.connect(code, new FakeConnection())!;
+    for (const p of [pink, blue]) p.receive({ type: "calibrated", value: true });
+    pink.receive({ type: "ready", value: true });
+    blue.receive({ type: "ready", value: true });
+    scheduler.fire(10);
+
+    blue.disconnect();
+    scheduler.fire(30 * 5);
+
+    expect(a.last("state")!.run).toEqual({ phase: "waiting", ready: { pink: false, blue: false } });
+  });
+
+  it("ends the Run as Fallen when both Birds drop, showing both players its Distance", () => {
+    const { scheduler, a, b, pink, blue } = runningRoom();
+
+    // Both walk steadily forward, straight into the gap at 8 m.
+    pink.receive({ type: "thrust", value: 0.4 });
+    blue.receive({ type: "thrust", value: 0.4 });
+    scheduler.fire(30 * 10);
+
+    for (const conn of [a, b]) {
+      const run = conn.last("state")!.run;
+      expect(run).toMatchObject({ phase: "ended", end: "fallen", ready: { pink: false, blue: false } });
+      expect(run.phase === "ended" && run.distance).toBeGreaterThan(7.5);
+    }
+  });
+
+  it("starts a new Run only once both players press Again, keeping their Calibration", () => {
+    const { scheduler, a, pink, blue } = runningRoom();
+    pink.receive({ type: "thrust", value: 0.4 });
+    blue.receive({ type: "thrust", value: 0.4 });
+    scheduler.fire(30 * 10);
+    pink.receive({ type: "thrust", value: 0 });
+    blue.receive({ type: "thrust", value: 0 });
+
+    pink.receive({ type: "ready", value: true });
+    scheduler.fire(30 * 5);
+    expect(a.last("state")!.run).toMatchObject({ phase: "ended", ready: { pink: true, blue: false } });
+
+    blue.receive({ type: "ready", value: true });
+    scheduler.fire(30 * 3);
+    expect(a.last("state")!.run).toEqual({ phase: "running", distance: 0 });
+    expect(a.last("state")!.world).toEqual(initialWorld());
+    expect(a.last("state")!.calibrated).toEqual({ pink: true, blue: true });
   });
 });
 

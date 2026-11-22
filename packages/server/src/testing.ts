@@ -1,6 +1,6 @@
 /** Test doubles shared by the server's tests: drive a RoomRegistry without sockets or real timers. */
-import type { ServerMessage } from "@tbob/shared";
-import { createRoomRegistry, type Connection, type Scheduler } from "./rooms.ts";
+import { COUNTDOWN_SECONDS, TICK_HZ, type ServerMessage } from "@tbob/shared";
+import { createRoomRegistry, type Connection, type Player, type Scheduler } from "./rooms.ts";
 
 export class FakeConnection implements Connection {
   messages: ServerMessage[] = [];
@@ -35,4 +35,24 @@ export function setup() {
   const scheduler = new FakeScheduler();
   const rooms = createRoomRegistry({ scheduler });
   return { scheduler, rooms };
+}
+
+/** Both players calibrate and press Ready, then the countdown runs out: the Run is on. */
+export function startRun(scheduler: FakeScheduler, pink: Player, blue: Player) {
+  for (const p of [pink, blue]) {
+    p.receive({ type: "calibrated", value: true });
+    p.receive({ type: "ready", value: true });
+  }
+  scheduler.fire(COUNTDOWN_SECONDS * TICK_HZ);
+}
+
+/** A Room with both players in it and a Run under way. */
+export function runningRoom() {
+  const { scheduler, rooms } = setup();
+  const code = rooms.createRoom();
+  const [a, b] = [new FakeConnection(), new FakeConnection()];
+  const pink = rooms.connect(code, a)!;
+  const blue = rooms.connect(code, b)!;
+  startRun(scheduler, pink, blue);
+  return { scheduler, rooms, code, a, b, pink, blue };
 }
