@@ -1,6 +1,8 @@
 import { followCamera, type Point } from "./camera.ts";
 import {
   BIRDS,
+  OPENING,
+  OPENING_HINTS,
   PHYSICS,
   loudnessToDb,
   runCourse,
@@ -37,6 +39,7 @@ const COLORS = {
   bird: BIRD_COLORS,
   ink: "#3d3a4b",
   meterBg: "#ffffff99",
+  sign: "#fffaf0ee",
 };
 
 const NAME: PerBird<string> = { pink: "Pink", blue: "Blue" };
@@ -106,6 +109,7 @@ export function createRenderer(canvas: HTMLCanvasElement) {
 
     const near = spansBetween(course, left, right);
     drawCourse(ctx, sx, sy, near, left, right, h);
+    drawHints(ctx, sx, sy, course, left, right);
     drawRope(ctx, sx, sy, pink, blue, f.world.ropeLength, near.ground);
     for (const bird of BIRDS) {
       const b = f.world.birds[bird];
@@ -166,6 +170,39 @@ function drawCourse(
     ctx.fillRect(sx(c.from), 0, sx(c.to) - sx(c.from), y);
     ctx.fillStyle = COLORS.ceilingEdge;
     ctx.fillRect(sx(c.from), y - 4, sx(c.to) - sx(c.from), 4);
+  }
+}
+
+/** The Opening's hints, each a little sign standing on the ground by its teaching step. */
+function drawHints(
+  ctx: CanvasRenderingContext2D,
+  sx: (x: number) => number,
+  sy: (y: number) => number,
+  course: Course,
+  left: number,
+  right: number,
+) {
+  ctx.font = "bold 15px system-ui";
+  ctx.textAlign = "center";
+  for (const { x, piece } of course.piecesBetween(left - 10, right + 10)) {
+    if (piece !== OPENING) continue;
+    OPENING_HINTS.forEach((hint, i) => {
+      // Neighbouring signs stand at alternate heights so their text doesn't overlap.
+      const cx = sx(x + hint.at);
+      const cy = sy(i % 2 ? 3.4 : 2.5);
+      const width = ctx.measureText(hint.text).width + 20;
+      ctx.strokeStyle = COLORS.groundEdge;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx, sy(0));
+      ctx.stroke();
+      ctx.fillStyle = COLORS.sign;
+      ctx.fillRect(cx - width / 2, cy - 16, width, 28);
+      ctx.strokeRect(cx - width / 2, cy - 16, width, 28);
+      ctx.fillStyle = COLORS.ink;
+      ctx.fillText(hint.text, cx, cy + 3);
+    });
   }
 }
 

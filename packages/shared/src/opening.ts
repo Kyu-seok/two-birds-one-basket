@@ -54,7 +54,7 @@ export const OPENING_HINTS: readonly Hint[] = [
   { at: STEPS.walk, text: "Talk to walk: any sound moves your Bird" },
   { at: STEPS.edge, text: "Go quiet to stop at the edge" },
   { at: STEPS.hop, text: "A short loud “hup!” hops the gap" },
-  { at: STEPS.roof.from, text: "Low roof: hop softly, too loud bonks your head" },
+  { at: STEPS.roof.from - 1.5, text: "Low roof: hop softly, too loud bonks your head" },
   { at: STEPS.together.from - 3, text: "Jump this gap together: the Rope holds you back" },
-  { at: STEPS.pit.from - 3, text: "One of you drop into the pit. Talk to climb out, or the other walks on to haul" },
+  { at: STEPS.pit.from - 3, text: "One of you drop in the pit: talk to climb out, or the other walks on to haul" },
 ].map((h) => ({ ...h, at: h.at + BEHIND }));
