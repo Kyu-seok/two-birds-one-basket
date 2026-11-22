@@ -63,10 +63,11 @@ export class MemoryScores implements ScoreStore {
   }
 }
 
-export function setup() {
+export function setup(opts: { now?: () => number } = {}) {
   const scheduler = new FakeScheduler();
-  const rooms = createRoomRegistry({ scheduler });
-  return { scheduler, rooms };
+  const scores = new MemoryScores();
+  const rooms = createRoomRegistry({ scheduler, scores, ...opts });
+  return { scheduler, rooms, scores };
 }
 
 /** Both players calibrate and press Ready, then the countdown runs out: the Run is on. */
