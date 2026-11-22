@@ -10,13 +10,15 @@ export async function createRoom(): Promise<string> {
   return ((await res.json()) as { roomCode: string }).roomCode;
 }
 
+/** Joins a Room as this browser: `browserId` lets the server recognise it (its Teams, and its Bird on reconnecting). */
 export function joinRoom(
   roomCode: string,
+  browserId: string,
   onMessage: (msg: ServerMessage) => void,
   onClose: () => void,
 ): RoomSocket {
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  const ws = new WebSocket(`${proto}://${location.host}/ws?room=${encodeURIComponent(roomCode)}`);
+  const ws = new WebSocket(`${proto}://${location.host}/ws?room=${encodeURIComponent(roomCode)}&browser=${encodeURIComponent(browserId)}`);
   ws.onmessage = (e) => onMessage(JSON.parse(e.data as string) as ServerMessage);
   ws.onclose = onClose;
   return {

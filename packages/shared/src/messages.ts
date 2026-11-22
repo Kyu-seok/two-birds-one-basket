@@ -1,6 +1,7 @@
 import type { Bird, PerBird } from "./bird.ts";
 import type { WorldState } from "./physics.ts";
 import type { RunState } from "./run.ts";
+import type { StoredRun, TeamInfo, TopRun } from "./scores.ts";
 import type { VoiceSignal } from "./voice.ts";
 
 /** Client → server. */
@@ -18,7 +19,9 @@ export type ClientMessage =
   /** Press (or take back) Ready before a Run, or Again on the Run End screen. Only counts once calibrated. */
   | { type: "ready"; value: boolean }
   /** Voice chat setup for the partner's browser; the server passes it on. */
-  | { type: "signal"; signal: VoiceSignal };
+  | { type: "signal"; signal: VoiceSignal }
+  /** Name a new Team for the two players in the Room. Only counts when they don't have one yet. */
+  | { type: "nameTeam"; name: string };
 
 /** Server → client. */
 export type ServerMessage =
@@ -30,6 +33,20 @@ export type ServerMessage =
   | { type: "chat"; bird: Bird; text: string }
   /** Voice chat setup from the partner's browser. */
   | { type: "signal"; signal: VoiceSignal }
+  /**
+   * The Room's Team, Team History and the Top 10. Sent to both players when someone joins,
+   * when a Run ends and when the Team is named.
+   */
+  | {
+      type: "scores";
+      /** The Team both players' browsers belong to, or null. */
+      team: TeamInfo | null;
+      /** Both players are here, the pair has no Team yet, and naming one would work. */
+      canNameTeam: boolean;
+      /** Every Run these two have finished together, oldest first (the Team History). */
+      history: StoredRun[];
+      top10: TopRun[];
+    }
   | {
       type: "state";
       tick: number;

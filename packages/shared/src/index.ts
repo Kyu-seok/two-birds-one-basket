@@ -6,3 +6,5 @@ export * from "./loudness.ts";
 export * from "./chat.ts";
 export * from "./run.ts";
 export * from "./voice.ts";
+export * from "./scores.ts";
+export * from "./identity.ts";

@@ -1,6 +1,8 @@
 import {
   BIRDS,
+  TICK_HZ,
   TICK_MS,
+  browserId,
   chatText,
   courseForSeed,
   initialWorld,
@@ -18,7 +20,9 @@ import {
   type ServerMessage,
   voiceSignal,
   type WorldState,
+  teamName,
 } from "@tbob/shared";
+import type { Pair, ScoreStore } from "./scores.ts";
 
 /** One player's link to the server (a WebSocket in production). */
 export interface Connection {
@@ -39,8 +43,11 @@ export interface Player {
 export interface RoomRegistry {
   /** Creates an empty Room and returns its Room Code. */
   createRoom(): string;
-  /** Puts the connection into the Room; returns null (after telling the client why) if it can't join. */
-  connect(roomCode: string, conn: Connection): Player | null;
+  /**
+   * Puts the connection into the Room; returns null (after telling the client why) if it can't join.
+   * `browser` is the Browser ID the client sent; anything malformed counts as none.
+   */
+  connect(roomCode: string, conn: Connection, browser?: unknown): Player | null;
 }
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -65,6 +72,8 @@ function reject(conn: Connection, msg: ServerMessage): null {
 interface Room {
   code: string;
   players: Partial<PerBird<Connection>>;
+  /** Each present player's Browser ID, or null if they sent none. */
+  browsers: PerBird<string | null>;
   world: WorldState;
   thrust: PerBird<number>;
   pings: PerBird<number | null>;
@@ -72,6 +81,8 @@ interface Room {
   calibrated: PerBird<boolean>;
   run: RunState;
   tick: number;
+  /** The tick the current Run started on, and the pair playing it; null outside a Run. */
+  runStart: { tick: number; pair: Pair | null } | null;
   stopLoop: (() => void) | null;
 }
 
@@ -81,18 +92,57 @@ function broadcast(room: Room, msg: ServerMessage) {
 
 interface Deps {
   scheduler: Scheduler;
+  scores: ScoreStore;
   makeCode?: () => string;
+  /** The wall clock, in ms since the epoch, for when a Run ended. */
+  now?: () => number;
   /** A new Course seed, for each Run. */
   makeSeed?: () => number;
   /** The Course for a seed. Tests swap in a fixed Course. */
   courseOf?: (seed: number) => Course;
 }
 
-function tick(room: Room, deps: Deps) {
+/** The Browser IDs of the two players in the Room, or null unless both are here and sent one. */
+export function pairOf(room: { browsers: PerBird<string | null> }): Pair | null {
+  const { pink, blue } = room.browsers;
+  return pink && blue && pink !== blue ? [pink, blue] : null;
+}
+
+/** Tells both players their Team (if any), its Team History and the Top 10. */
+function sendScores(room: Room, scores: ScoreStore) {
+  const pair = pairOf(room);
+  const team = pair && scores.teamOf(pair);
+  broadcast(room, {
+    type: "scores",
+    team,
+    canNameTeam: pair !== null && team === null,
+    history: pair ? scores.history(pair) : [],
+    top10: scores.top10(),
+  });
+}
+
+function tick(room: Room, deps: Deps, scores: ScoreStore, now: () => number) {
+  const before = room.run.phase;
   const seed = (deps.makeSeed ?? newCourseSeed)();
   const dt = TICK_MS / 1000;
-  ({ run: room.run, world: room.world } = stepRun(room.run, room.world, room.thrust, dt, seed, deps.courseOf ?? courseForSeed));
+  const { run, world } = stepRun(room.run, room.world, room.thrust, dt, seed, deps.courseOf ?? courseForSeed);
+  room.run = run;
+  room.world = world;
   room.tick++;
+  if (before !== "running" && run.phase === "running") {
+    room.runStart = { tick: room.tick, pair: pairOf(room) };
+  }
+  const { runStart } = room;
+  if (before === "running" && run.phase === "ended" && runStart) {
+    scores.saveRun(runStart.pair, {
+      distance: run.distance,
+      end: run.end,
+      seconds: (room.tick - runStart.tick) / TICK_HZ,
+      endedAt: now(),
+    });
+    room.runStart = null;
+    sendScores(room, scores);
+  }
   broadcast(room, {
     type: "state",
     tick: room.tick,
@@ -106,7 +156,9 @@ function tick(room: Room, deps: Deps) {
 }
 
 export function createRoomRegistry(deps: Deps): RoomRegistry {
+  const { scores } = deps;
   const makeCode = deps.makeCode ?? randomCode;
+  const now = deps.now ?? Date.now;
   const byCode = new Map<string, Room>();
 
   return {
@@ -116,25 +168,29 @@ export function createRoomRegistry(deps: Deps): RoomRegistry {
       byCode.set(code, {
         code,
         players: {},
+        browsers: { pink: null, blue: null },
         world: initialWorld(),
         thrust: { pink: 0, blue: 0 },
         pings: { pink: null, blue: null },
         calibrated: { pink: false, blue: false },
         run: newRoomRun(),
         tick: 0,
+        runStart: null,
         stopLoop: null,
       });
       return code;
     },
-    connect(roomCode, conn) {
+    connect(roomCode, conn, browser) {
       const room = byCode.get(roomCode);
       if (!room) return reject(conn, { type: "roomNotFound" });
       const bird = BIRDS.find((b) => !room.players[b]);
       if (!bird) return reject(conn, { type: "roomFull" });
 
       room.players[bird] = conn;
+      room.browsers[bird] = browserId(browser);
       conn.send({ type: "joined", bird, roomCode });
-      room.stopLoop ??= deps.scheduler.every(TICK_MS, () => tick(room, deps));
+      sendScores(room, scores);
+      room.stopLoop ??= deps.scheduler.every(TICK_MS, () => tick(room, deps, scores, now));
 
       return {
         receive(msg) {
@@ -168,11 +224,21 @@ export function createRoomRegistry(deps: Deps): RoomRegistry {
               if (text) broadcast(room, { type: "chat", bird, text });
               break;
             }
+            case "nameTeam": {
+              const pair = pairOf(room);
+              const name = teamName(msg.name);
+              if (pair && name && !scores.teamOf(pair)) {
+                scores.nameTeam(pair, name);
+                sendScores(room, scores);
+              }
+              break;
+            }
           }
         },
         disconnect() {
           if (room.players[bird] !== conn) return;
           delete room.players[bird];
+          room.browsers[bird] = null;
           room.thrust[bird] = 0;
           room.pings[bird] = null;
           room.calibrated[bird] = false;

@@ -1,6 +1,8 @@
 /** Test doubles shared by the server's tests: drive a RoomRegistry without sockets or real timers. */
-import { COUNTDOWN_SECONDS, TICK_HZ, courseOf, type ServerMessage } from "@tbob/shared";
+import { randomUUID } from "node:crypto";
+import { COUNTDOWN_SECONDS, TICK_HZ, courseOf, type ServerMessage, type StoredRun, type TeamInfo, type TopRun } from "@tbob/shared";
 import { createRoomRegistry, type Connection, type Player, type Scheduler } from "./rooms.ts";
+import { pairKey, type Pair, type ScoreStore } from "./scores.ts";
 
 export class FakeConnection implements Connection {
   messages: ServerMessage[] = [];
@@ -38,12 +40,43 @@ const TEST_COURSE = courseOf([
   { from: TEST_GAP.end, to: 200, height: 0 },
 ]);
 
-export function setup() {
+/** A ScoreStore in memory; `scores.test.ts` holds it to the same contract as the SQLite one. */
+export class MemoryScores implements ScoreStore {
+  teams = new Map<string, TeamInfo>();
+  runs: { key: string | null; run: StoredRun }[] = [];
+  teamOf(pair: Pair) {
+    return this.teams.get(pairKey(pair)) ?? null;
+  }
+  nameTeam(pair: Pair, name: string) {
+    const key = pairKey(pair);
+    if (!this.teams.has(key)) this.teams.set(key, { id: randomUUID(), name });
+    return this.teams.get(key)!;
+  }
+  saveRun(pair: Pair | null, run: StoredRun) {
+    this.runs.push({ key: pair && pairKey(pair), run });
+  }
+  history(pair: Pair) {
+    const key = pairKey(pair);
+    return this.runs.filter((r) => r.key === key).map((r) => r.run);
+  }
+  top10() {
+    const top: TopRun[] = [];
+    for (const { key, run } of this.runs) {
+      const team = key === null ? undefined : this.teams.get(key);
+      if (team) top.push({ ...run, team });
+    }
+    // A stable sort keeps equal Distances in the order they were run, as SQLite's does.
+    return top.sort((x, y) => y.distance - x.distance).slice(0, 10);
+  }
+}
+
+export function setup(opts: { now?: () => number } = {}) {
   const scheduler = new FakeScheduler();
+  const scores = new MemoryScores();
   // Each tick offers the next seed, so each Run's seed differs.
   let seed = 0;
-  const rooms = createRoomRegistry({ scheduler, makeSeed: () => ++seed, courseOf: () => TEST_COURSE });
-  return { scheduler, rooms };
+  const rooms = createRoomRegistry({ scheduler, scores, makeSeed: () => ++seed, courseOf: () => TEST_COURSE, ...opts });
+  return { scheduler, rooms, scores };
 }
 
 /** Both players calibrate and press Ready, then the countdown runs out: the Run is on. */
