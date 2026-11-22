@@ -10,7 +10,9 @@ export type ClientMessage =
   /** The sender's measured round-trip time, so both players can see it. */
   | { type: "reportPing"; ms: number }
   /** Whether the sender has a Calibration. False while they redo it; only a calibrated player can become Ready. */
-  | { type: "calibrated"; value: boolean };
+  | { type: "calibrated"; value: boolean }
+  /** A Room chat message: the silent way to coordinate (ADR 0001). */
+  | { type: "chat"; text: string };
 
 /** Server → client. */
 export type ServerMessage =
@@ -18,6 +20,8 @@ export type ServerMessage =
   | { type: "roomFull" }
   | { type: "roomNotFound" }
   | { type: "pong"; t: number }
+  /** A Room chat message from `bird`, sent to both players. */
+  | { type: "chat"; bird: Bird; text: string }
   /** Both Birds fell; the test Course starts again. */
   | { type: "fallen" }
   | {

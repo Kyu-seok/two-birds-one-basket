@@ -2,6 +2,7 @@ import {
   BIRDS,
   TEST_COURSE,
   TICK_MS,
+  chatText,
   initialWorld,
   stepWorld,
   type Bird,
@@ -134,6 +135,11 @@ export function createRoomRegistry(deps: { scheduler: Scheduler; makeCode?: () =
             case "calibrated":
               room.calibrated[bird] = msg.value === true;
               break;
+            case "chat": {
+              const text = chatText(msg.text);
+              if (text) broadcast(room, { type: "chat", bird, text });
+              break;
+            }
           }
         },
         disconnect() {

@@ -29,3 +29,20 @@ canvas { display: block; width: 100vw; height: 100vh; }
 .meter { height: 14px; background: #0001; border-radius: 7px; overflow: hidden; }
 .meter-fill { height: 100%; width: 0; background: var(--accent); transition: width 50ms linear; }
 .countdown { font-weight: 600; }
+#chat {
+  position: fixed; left: 16px; bottom: 16px; width: min(300px, calc(100% - 32px));
+  display: flex; flex-direction: column; gap: 6px; font-size: 14px;
+}
+#chat[hidden] { display: none; }
+#chat-log {
+  list-style: none; margin: 0; padding: 0; max-height: 30vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 4px;
+}
+#chat-log li {
+  align-self: flex-start; max-width: 100%; padding: 4px 10px; border-radius: 10px;
+  color: var(--ink); overflow-wrap: anywhere;
+}
+#chat-input {
+  font: inherit; padding: 8px 12px; border-radius: 999px; border: 1px solid #0002; background: #fdf6eccc;
+}
+#chat-input:focus { background: var(--paper); outline: 2px solid var(--accent-2); }
