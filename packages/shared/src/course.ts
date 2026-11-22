@@ -82,6 +82,8 @@ export interface PlacedPiece {
 export interface Course {
   /** The Pieces overlapping `from`..`to`, in order along the Course. An endless Course builds them as needed. */
   piecesBetween(from: number, to: number): readonly PlacedPiece[];
+  /** Where Distance counts from: where the random Pieces begin, past the start or the Opening. */
+  distanceFrom: number;
 }
 
 /** A one-off stretch of Course from ground and ceiling spans given in Course coordinates, for tests and tools. */
@@ -92,9 +94,9 @@ export function courseOf(ground: readonly Span[], ceilings: readonly Span[] = []
   return fixedCourse([{ x, piece: { name: "test", tier: "easy", length: end - x, ground: ground.map(shift), ceilings: ceilings.map(shift) } }]);
 }
 
-/** A Course of a fixed list of placed Pieces. */
-export function fixedCourse(placed: readonly PlacedPiece[]): Course {
-  return { piecesBetween: (from, to) => placed.filter((p) => p.x <= to && p.x + p.piece.length >= from) };
+/** A Course of a fixed list of placed Pieces, its Distance counted from `distanceFrom`. */
+export function fixedCourse(placed: readonly PlacedPiece[], distanceFrom = 0): Course {
+  return { piecesBetween: (from, to) => placed.filter((p) => p.x <= to && p.x + p.piece.length >= from), distanceFrom };
 }
 
 const flat = (name: string, length: number): Piece => ({
@@ -178,8 +180,8 @@ export const PIECES: readonly Piece[] = [
 ];
 
 /**
- * How likely each Tier is for the next Piece at `distance` meters along the Course. All Easy at
- * the start; Medium creeps in after 30 m and Hard after 120 m, until Easy is rare.
+ * How likely each Tier is for the next Piece at `distance` meters (counted, like Distance, from
+ * where the random Pieces begin). All Easy at the start; Medium creeps in after 30 m and Hard after 120 m, until Easy is rare.
  */
 export function tierWeights(distance: number): Record<Tier, number> {
   const ramp = (start: number, span: number) => Math.min(1, Math.max(0, (distance - start) / span));
@@ -200,7 +202,7 @@ function seededRandom(seed: number): () => number {
   };
 }
 
-/** Picks the next Piece at `distance`: a Tier by weight, then a Piece of it (or of the nearest easier Tier that has one). */
+/** Picks the next Piece at Distance `distance`: a Tier by weight, then a Piece of it (or of the nearest easier Tier that has one). */
 function nextPiece(random: () => number, distance: number, catalog: readonly Piece[]): Piece {
   const weights = tierWeights(distance);
   let roll = random();
@@ -227,11 +229,13 @@ export function randomCourse(seed: number, catalog: readonly Piece[] = PIECES, f
   const random = seededRandom(seed);
   const placed: PlacedPiece[] = [{ x: START_X, piece: first }];
   const end = () => placed.at(-1)!.x + placed.at(-1)!.piece.length;
+  const distanceFrom = end();
   return {
+    distanceFrom,
     piecesBetween(from, to) {
       while (end() < to) {
         const x = end();
-        placed.push({ x, piece: nextPiece(random, x, catalog) });
+        placed.push({ x, piece: nextPiece(random, x - distanceFrom, catalog) });
       }
       return placed.filter((p) => p.x <= to && p.x + p.piece.length >= from);
     },

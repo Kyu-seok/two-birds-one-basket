@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PIECES, TIERS, randomCourse, tierWeights, type Piece, type Tier } from "./course.ts";
+import { OPENING } from "./opening.ts";
 
 describe("a random Course", () => {
   it("is the same for the same seed, so the server and both clients build the same one", () => {
@@ -42,6 +43,16 @@ describe("a random Course", () => {
     const late = tiersBetween(2000, 3000);
     expect(early.every((t) => t === "easy")).toBe(true);
     expect(late.filter((t) => t !== "easy").length).toBeGreaterThan(late.length / 2);
+  });
+
+  it("weighs Tiers by Distance from where the random Pieces begin, so the Opening doesn't bring harder ones early", () => {
+    const piece = (tier: Tier): Piece => ({ name: tier, tier, length: 10, ground: [{ from: 0, to: 10, height: 0 }], ceilings: [] });
+    for (let seed = 0; seed < 50; seed++) {
+      const course = randomCourse(seed, TIERS.map(piece), OPENING);
+      const [, ...random] = course.piecesBetween(0, 200);
+      const early = random.filter((p) => p.x - random[0]!.x < 30);
+      expect(early.map((p) => p.piece.tier).every((t) => t === "easy"), `seed ${seed}`).toBe(true);
+    }
   });
 });
 

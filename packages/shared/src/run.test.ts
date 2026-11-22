@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TICK_HZ } from "./messages.ts";
-import { courseOf, randomCourse } from "./course.ts";
+import { courseForSeed, courseOf, randomCourse } from "./course.ts";
 import { OPENING } from "./opening.ts";
 import { initialWorld, type Thrusts, type WorldState } from "./physics.ts";
 import {
@@ -78,7 +78,7 @@ describe("Distance", () => {
   it("is how far the Bird behind has got, in meters", () => {
     const w = initialWorld();
     const world = { ...w, birds: { pink: { ...w.birds.pink, x: 6.5 }, blue: { ...w.birds.blue, x: 4.2 } } };
-    expect(distanceOf(world)).toBe(4.2);
+    expect(distanceOf(world, TEST_COURSE)).toBe(4.2);
   });
 
   it("grows as the Birds walk, measured by the Bird behind", () => {
@@ -93,6 +93,22 @@ describe("Distance", () => {
     const past = tick(behind.run, behind.world, { pink: 0.4, blue: 0 }, 1.5);
     expect(past.world.birds.pink.x).toBeGreaterThan(2);
     expect(past.run.phase === "running" && past.run.distance).toBeCloseTo(1.5);
+  });
+
+  it("counts from where the random Pieces begin: the Opening and the plain start are 0 m", () => {
+    const standing = (x: number) => {
+      const w = initialWorld();
+      return { ...w, birds: { pink: { ...w.birds.pink, x: x + 1 }, blue: { ...w.birds.blue, x } } };
+    };
+    // The plain start reaches 10 m past the start line; the Opening, 56 m.
+    expect(distanceOf(standing(9), courseForSeed(3, false))).toBe(0);
+    expect(distanceOf(standing(14), courseForSeed(3, false))).toBeCloseTo(4);
+    expect(distanceOf(standing(50), courseForSeed(3, true))).toBe(0);
+    expect(distanceOf(standing(60), courseForSeed(3, true))).toBeCloseTo(4);
+
+    const run: RunState = { phase: "running", seed: 3, opening: true, distance: 0 };
+    const s = stepRun(run, standing(50), SILENT, TICK, () => ({ seed: 3, opening: true }));
+    expect(s.run).toMatchObject({ phase: "running", distance: 0 });
   });
 
   it("never goes back down when the Birds step backward or swing", () => {

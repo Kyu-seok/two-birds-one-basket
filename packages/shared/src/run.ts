@@ -75,9 +75,12 @@ export function playerReturned(run: RunState, bird: Bird): RunState {
   return run;
 }
 
-/** How far the Bird behind is along the Course, in meters. */
-export function distanceOf(world: WorldState): number {
-  return Math.max(0, Math.min(world.birds.pink.x, world.birds.blue.x));
+/**
+ * How far the Bird behind is along `course`, in meters, counted from where its random Pieces
+ * begin: the start and the Opening are 0 m.
+ */
+export function distanceOf(world: WorldState, course: Course): number {
+  return Math.max(0, Math.min(world.birds.pink.x, world.birds.blue.x) - course.distanceFrom);
 }
 
 /** Before a Room's first Run there is no Course yet: just the start. */
@@ -125,8 +128,9 @@ export function stepRun(
     }
     case "running": {
       const { seed, opening } = run;
-      const next = stepWorld(world, thrust, dt, courseOf(seed, opening));
-      const distance = Math.max(run.distance, distanceOf(next));
+      const course = courseOf(seed, opening);
+      const next = stepWorld(world, thrust, dt, course);
+      const distance = Math.max(run.distance, distanceOf(next, course));
       if (next.fallen) {
         return { run: { phase: "ended", seed, opening, end: "fallen", distance, ready: { ...NOBODY_READY } }, world: next };
       }
