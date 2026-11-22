@@ -62,12 +62,16 @@ export function setReady(run: RunState, bird: Bird, value: boolean): RunState {
 
 /**
  * A player left: they are no longer Ready, a countdown they were part of stops, and a running
- * Run pauses until they come back (or RECONNECT_SECONDS pass).
+ * Run pauses until they come back (or RECONNECT_SECONDS pass). A player who `canReturn` not at
+ * all (nobody can be recognised as them) ends a Run under way as Abandoned at once.
  */
-export function playerLeft(run: RunState, bird: Bird): RunState {
+export function playerLeft(run: RunState, bird: Bird, canReturn = true): RunState {
   if (run.phase === "countdown") return newRoomRun();
-  if (run.phase === "running") {
-    return { phase: "paused", seed: run.seed, opening: run.opening, distance: run.distance, dropped: bird, secondsLeft: RECONNECT_SECONDS };
+  if (run.phase === "running" || run.phase === "paused") {
+    const { seed, opening, distance } = run;
+    if (!canReturn) return { phase: "ended", seed, opening, end: "abandoned", dropped: bird, distance, ready: { ...NOBODY_READY } };
+    if (run.phase === "running") return { phase: "paused", seed, opening, distance, dropped: bird, secondsLeft: RECONNECT_SECONDS };
+    return run;
   }
   return setReady(run, bird, false);
 }

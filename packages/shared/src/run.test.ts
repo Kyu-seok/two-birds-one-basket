@@ -237,6 +237,17 @@ describe("a player dropping mid-Run", () => {
     expect(moved.world.birds.pink.x).toBeGreaterThan(waited.world.birds.pink.x);
   });
 
+  it("ends the Run as Abandoned at once if the player can't come back", () => {
+    const s = started();
+    const walked = tick(s.run, s.world, { pink: 0.4, blue: 0.4 }, 1);
+    const distance = walked.run.phase === "running" ? walked.run.distance : -1;
+    expect(playerLeft(walked.run, "blue", false)).toEqual({
+      phase: "ended", seed: SEED, opening: false, end: "abandoned", dropped: "blue", distance, ready: { pink: false, blue: false },
+    });
+    // The same if they leave while the Run is paused for their partner.
+    expect(playerLeft(paused().run, "pink", false)).toMatchObject({ phase: "ended", end: "abandoned", dropped: "pink" });
+  });
+
   it("only the dropped player's return resumes it", () => {
     const { run } = paused();
     expect(playerReturned(run, "pink")).toEqual(run);

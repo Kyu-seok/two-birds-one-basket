@@ -83,6 +83,30 @@ describe("a player dropping mid-Run", () => {
   });
 });
 
+describe("a player with no Browser ID dropping mid-Run", () => {
+  it("ends the Run as Abandoned at once and records it, since nobody can come back to their Bird", () => {
+    const { scheduler, scores, a, blue } = runningRoom({ pink: ANN });
+    blue.disconnect();
+    scheduler.fire();
+
+    expect(a.last("state")!.run).toMatchObject({ phase: "ended", end: "abandoned", dropped: "blue" });
+    expect(scores.runs.map((r) => r.run.end)).toEqual(["abandoned"]);
+  });
+
+  it("doesn't let a stranger who takes their Bird resume the Run: they calibrate and press Again first", () => {
+    const { scheduler, rooms, code, a, blue } = runningRoom({ pink: ANN });
+    blue.disconnect();
+
+    const stranger = rooms.connect(code, new FakeConnection(), "browser-cy")!;
+    stranger.receive({ type: "ready", value: true });
+    scheduler.fire();
+
+    const state = a.last("state")!;
+    expect(state.run).toMatchObject({ phase: "ended", ready: { blue: false } });
+    expect(state.calibrated.blue).toBe(false);
+  });
+});
+
 describe("a player dropping outside a Run", () => {
   it("keeps their Bird and Calibration for when the same browser comes back", () => {
     const { rooms, scheduler } = setup();

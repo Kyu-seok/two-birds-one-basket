@@ -157,12 +157,22 @@ function saveRun(room: Room, scores: ScoreStore, now: () => number, end: RunEndR
   room.runStart = null;
 }
 
+/** Moves the Room's Run on to `next`, recording it if it has just ended. */
+function setRun(room: Room, scores: ScoreStore, now: () => number, next: RunState) {
+  const ending = room.run.phase !== "ended" && next.phase === "ended";
+  room.run = next;
+  if (next.phase === "ended" && ending) {
+    saveRun(room, scores, now, next.end, next.distance);
+    sendScores(room, scores);
+  }
+}
+
 function tick(room: Room, deps: Deps, scores: ScoreStore, now: () => number) {
   const before = room.run.phase;
   const nextCourse = () => ({ seed: (deps.makeSeed ?? newCourseSeed)(), opening: playsOpening(room, scores) });
   const dt = TICK_MS / 1000;
   const { run, world } = stepRun(room.run, room.world, room.thrust, dt, nextCourse, deps.courseOf ?? courseForSeed);
-  room.run = run;
+  setRun(room, scores, now, run);
   room.world = world;
   room.tick++;
   // A replay asked for is used up by the Run it starts.
@@ -173,10 +183,6 @@ function tick(room: Room, deps: Deps, scores: ScoreStore, now: () => number) {
   }
   if (before === "countdown" && run.phase === "running") room.runStart = { ticks: 0, pair: pairOf(room) };
   else if (before === "running" && room.runStart) room.runStart.ticks++;
-  if (before !== "ended" && run.phase === "ended") {
-    saveRun(room, scores, now, run.end, run.distance);
-    sendScores(room, scores);
-  }
   broadcast(room, {
     type: "state",
     tick: room.tick,
@@ -287,10 +293,11 @@ export function createRoomRegistry(deps: Deps): RoomRegistry {
           room.thrust[bird] = 0;
           room.pings[bird] = null;
           // Their Bird waits for their browser as long as a paused Run would; without a Browser ID
-          // nobody can come back to it, so it is free at once.
-          if (room.browsers[bird] === null) freeBird(room, bird);
-          else room.reservedUntil[bird] = room.tick + RECONNECT_SECONDS * TICK_HZ;
-          room.run = playerLeft(room.run, bird);
+          // nobody can come back to it, so it is free at once and a Run under way is Abandoned.
+          const canReturn = room.browsers[bird] !== null;
+          if (canReturn) room.reservedUntil[bird] = room.tick + RECONNECT_SECONDS * TICK_HZ;
+          else freeBird(room, bird);
+          setRun(room, scores, now, playerLeft(room.run, bird, canReturn));
           if (!room.players.pink && !room.players.blue) {
             // The Room ends with a Run still on: nobody is left to come back to it.
             if (room.run.phase === "paused") saveRun(room, scores, now, "abandoned", room.run.distance);
