@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TICK_HZ } from "./messages.ts";
 import { courseOf, randomCourse } from "./course.ts";
+import { OPENING } from "./opening.ts";
 import { initialWorld, type Thrusts, type WorldState } from "./physics.ts";
 import { COUNTDOWN_SECONDS, distanceOf, newRoomRun, runCourse, setReady, stepRun, type RunState } from "./run.ts";
 
@@ -14,10 +15,10 @@ const TEST_COURSE = courseOf([
 ]);
 const SEED = 7;
 
-function tick(run: RunState, world: WorldState, thrust: Thrusts, seconds: number, seed = SEED) {
+function tick(run: RunState, world: WorldState, thrust: Thrusts, seconds: number, seed = SEED, opening = false) {
   let s = { run, world };
   for (let i = 0; i < Math.round(seconds * TICK_HZ); i++) {
-    s = stepRun(s.run, s.world, thrust, TICK, seed, () => TEST_COURSE);
+    s = stepRun(s.run, s.world, thrust, TICK, () => ({ seed, opening }), () => TEST_COURSE);
   }
   return s;
 }
@@ -50,7 +51,7 @@ describe("starting a Run", () => {
 
   it("starts the Run when the countdown ends, and the Birds then move", () => {
     const s = started();
-    expect(s.run).toEqual({ phase: "running", seed: SEED, distance: 0 });
+    expect(s.run).toEqual({ phase: "running", seed: SEED, opening: false, distance: 0 });
 
     const later = tick(s.run, s.world, { pink: 0.4, blue: 0.4 }, 1);
     expect(later.world.birds.pink.x).toBeGreaterThan(0.5);
@@ -85,9 +86,9 @@ describe("Distance", () => {
 
   it("never goes back down when the Birds step backward or swing", () => {
     const s = started();
-    const run: RunState = { phase: "running", seed: SEED, distance: 5 };
+    const run: RunState = { phase: "running", seed: SEED, opening: false, distance: 5 };
     const later = tick(run, s.world, SILENT, 0.5);
-    expect(later.run).toEqual({ phase: "running", seed: SEED, distance: 5 });
+    expect(later.run).toEqual({ phase: "running", seed: SEED, opening: false, distance: 5 });
   });
 });
 
@@ -140,7 +141,7 @@ describe("Again", () => {
     expect(counting.world).toEqual(initialWorld());
 
     const running = tick(counting.run, counting.world, SILENT, COUNTDOWN_SECONDS);
-    expect(running.run).toEqual({ phase: "running", seed: SEED, distance: 0 });
+    expect(running.run).toEqual({ phase: "running", seed: SEED, opening: false, distance: 0 });
   });
 
   it("Ready can't be pressed during a Run", () => {
@@ -162,8 +163,21 @@ describe("the Course", () => {
   });
 
   it("is the Run's seeded random Course, or just the start before the first Run", () => {
-    const running: RunState = { phase: "running", seed: 5, distance: 0 };
+    const running: RunState = { phase: "running", seed: 5, opening: false, distance: 0 };
     expect(runCourse(running).piecesBetween(0, 200)).toEqual(randomCourse(5).piecesBetween(0, 200));
     expect(runCourse(newRoomRun()).piecesBetween(0, 200).map((p) => p.piece.name)).toEqual(["start"]);
+  });
+
+  it("starts with the Opening when the Room asks for it as the Run's countdown starts", () => {
+    const first = tick(bothReady(newRoomRun()), initialWorld(), SILENT, 0.5, 11, true);
+    expect(first.run).toMatchObject({ phase: "countdown", seed: 11, opening: true });
+    expect(runCourse(first.run).piecesBetween(0, 1)[0]!.piece).toBe(OPENING);
+
+    const ended = tick(first.run, first.world, { pink: 0.4, blue: 0.4 }, 15, 12, false);
+    expect(ended.run).toMatchObject({ phase: "ended", opening: true });
+
+    const second = tick(bothReady(ended.run), ended.world, SILENT, 0.5, 13, false);
+    expect(second.run).toMatchObject({ phase: "countdown", seed: 13, opening: false });
+    expect(runCourse(second.run).piecesBetween(0, 1)[0]!.piece).not.toBe(OPENING);
   });
 });
