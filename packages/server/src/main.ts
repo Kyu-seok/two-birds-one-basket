@@ -5,9 +5,12 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import type { ClientMessage } from "@tbob/shared";
 import { createRoomRegistry, type Connection, type Scheduler } from "./rooms.ts";
+import { openSqliteScores } from "./scores-sqlite.ts";
 
 const PORT = Number(process.env.PORT ?? 8100);
 const CLIENT_DIST = fileURLToPath(new URL("../../client/dist", import.meta.url));
+/** Teams and finished Runs. The default sits in the gitignored `packages/server/data/`. */
+const DB_PATH = process.env.DB_PATH ?? fileURLToPath(new URL("../data/scores.db", import.meta.url));
 
 const scheduler: Scheduler = {
   every(ms, fn) {
@@ -15,7 +18,7 @@ const scheduler: Scheduler = {
     return () => clearInterval(id);
   },
 };
-const rooms = createRoomRegistry({ scheduler });
+const rooms = createRoomRegistry({ scheduler, scores: openSqliteScores(DB_PATH) });
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -44,12 +47,13 @@ const server = createServer((req, res) => {
 
 const wss = new WebSocketServer({ server, path: "/ws" });
 wss.on("connection", (socket, req) => {
-  const roomCode = new URL(req.url ?? "", "http://localhost").searchParams.get("room") ?? "";
+  const params = new URL(req.url ?? "", "http://localhost").searchParams;
+  const roomCode = params.get("room") ?? "";
   const conn: Connection = {
     send: (msg) => socket.readyState === socket.OPEN && socket.send(JSON.stringify(msg)),
     close: () => socket.close(),
   };
-  const player = rooms.connect(roomCode.toUpperCase(), conn);
+  const player = rooms.connect(roomCode.toUpperCase(), conn, params.get("browser"));
   if (!player) return;
 
   socket.on("message", (data) => {

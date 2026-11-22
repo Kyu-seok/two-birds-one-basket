@@ -17,7 +17,8 @@ import { KEYS_MODE, keyboardThrust } from "./keys.ts";
 import { openMic, type Mic } from "./mic.ts";
 import { createRoom, joinRoom, type RoomSocket } from "./net.ts";
 import { createRenderer } from "./render.ts";
-import { setupRunScreen } from "./run.ts";
+import { loadBrowserId, rememberTeam } from "./identity.ts";
+import { setupRunScreen, type Scores } from "./run.ts";
 import { startVoice, type VoiceLink } from "./voice.ts";
 
 const panel = document.getElementById("panel")!;
@@ -82,9 +83,11 @@ async function enter(roomCode: string) {
   let latest: { msg: StateMsg; at: number } | null = null;
   let socket: RoomSocket | null = null;
   let chat: ReturnType<typeof setupChat> | null = null;
+  let scores: Scores | null = null;
 
   socket = joinRoom(
     roomCode,
+    loadBrowserId(localStorage),
     (msg) => {
       switch (msg.type) {
         case "joined":
@@ -113,6 +116,13 @@ async function enter(roomCode: string) {
         case "signal":
           voice?.receive(msg.signal);
           break;
+        case "scores": {
+          const { type: _, ...rest } = msg;
+          scores = rest;
+          // Both browsers get this, so naming a Team saves its ID in each.
+          if (msg.team) rememberTeam(localStorage, msg.team);
+          break;
+        }
         case "state":
           // A new Run puts the Birds back at the start: don't smooth them back across the Course.
           prev = latest?.msg.run.phase === msg.run.phase ? latest : null;
@@ -138,7 +148,10 @@ async function enter(roomCode: string) {
     addEventListener("keyup", (e) => e.code === "Space" && (boost = false));
 
     const sensitivity = setupSensitivity();
-    const runScreen = setupRunScreen((value) => socket?.send({ type: "ready", value }));
+    const runScreen = setupRunScreen(
+      (value) => socket?.send({ type: "ready", value }),
+      (name) => socket?.send({ type: "nameTeam", name }),
+    );
     const keys = KEYS_MODE ? keyboardThrust() : null;
 
     // Until the player has calibrated (and while they redo it) their voice moves nothing.
@@ -194,7 +207,7 @@ async function enter(roomCode: string) {
         const inRun = s.run.phase === "countdown" || s.run.phase === "running";
         // Calibration waits until the Run is over.
         if (!keys) recalibrate.hidden = inRun;
-        runScreen({ run: s.run, myBird, present: s.present, calibrated: s.calibrated, calibrating: !panel.hidden });
+        runScreen({ run: s.run, myBird, present: s.present, calibrated: s.calibrated, calibrating: !panel.hidden, scores });
         draw({
           world,
           run: s.run,
