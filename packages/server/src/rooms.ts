@@ -149,6 +149,22 @@ function freeBird(room: Room, bird: Bird) {
   room.calibrated[bird] = false;
 }
 
+/**
+ * A player is gone. Their Bird waits for their browser as long as a paused Run would; without a
+ * Browser ID nobody can come back to it, so it is free at once and a Run under way is Abandoned.
+ */
+function playerGone(room: Room, bird: Bird, scores: ScoreStore, now: () => number) {
+  const canReturn = room.browsers[bird] !== null;
+  if (canReturn) room.reservedUntil[bird] = room.tick + RECONNECT_SECONDS * TICK_HZ;
+  else freeBird(room, bird);
+  setRun(room, scores, now, playerLeft(room.run, bird, canReturn));
+}
+
+/** Nobody is in the Room and no Bird is kept for anyone coming back. */
+function deserted(room: Room): boolean {
+  return BIRDS.every((b) => !room.players[b] && room.browsers[b] === null);
+}
+
 /** Records the Run that just ended in the Team History (and maybe the Top 10). */
 function saveRun(room: Room, scores: ScoreStore, now: () => number, end: RunEndReason, distance: number) {
   const { runStart } = room;
@@ -201,6 +217,12 @@ export function createRoomRegistry(deps: Deps): RoomRegistry {
   const makeCode = deps.makeCode ?? randomCode;
   const now = deps.now ?? Date.now;
   const byCode = new Map<string, Room>();
+  /** The Room ends once nobody is in it and nobody can come back to it. */
+  const closeIfDeserted = (room: Room) => {
+    if (!deserted(room)) return;
+    room.stopLoop?.();
+    byCode.delete(room.code);
+  };
 
   return {
     createRoom() {
@@ -237,9 +259,15 @@ export function createRoomRegistry(deps: Deps): RoomRegistry {
       room.browsers[bird] = id;
       room.reservedUntil[bird] = null;
       room.run = playerReturned(room.run, bird);
+      // Back to a Run their partner has left too: it waits on for the partner.
+      const partner = partnerOf(bird);
+      if (room.run.phase === "running" && !room.players[partner]) playerGone(room, partner, scores, now);
       conn.send({ type: "joined", bird, roomCode });
       sendScores(room, scores);
-      room.stopLoop ??= deps.scheduler.every(TICK_MS, () => tick(room, deps, scores, now));
+      room.stopLoop ??= deps.scheduler.every(TICK_MS, () => {
+        tick(room, deps, scores, now);
+        closeIfDeserted(room);
+      });
 
       return {
         receive(msg) {
@@ -292,18 +320,8 @@ export function createRoomRegistry(deps: Deps): RoomRegistry {
           delete room.players[bird];
           room.thrust[bird] = 0;
           room.pings[bird] = null;
-          // Their Bird waits for their browser as long as a paused Run would; without a Browser ID
-          // nobody can come back to it, so it is free at once and a Run under way is Abandoned.
-          const canReturn = room.browsers[bird] !== null;
-          if (canReturn) room.reservedUntil[bird] = room.tick + RECONNECT_SECONDS * TICK_HZ;
-          else freeBird(room, bird);
-          setRun(room, scores, now, playerLeft(room.run, bird, canReturn));
-          if (!room.players.pink && !room.players.blue) {
-            // The Room ends with a Run still on: nobody is left to come back to it.
-            if (room.run.phase === "paused") saveRun(room, scores, now, "abandoned", room.run.distance);
-            room.stopLoop?.();
-            byCode.delete(room.code);
-          }
+          playerGone(room, bird, scores, now);
+          closeIfDeserted(room);
         },
       };
     },
