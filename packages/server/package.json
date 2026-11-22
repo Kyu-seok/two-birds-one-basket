@@ -1,0 +1,13 @@
+{
+  "name": "@tbob/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@tbob/shared": "*",
+    "ws": "^8.23.0"
+  }
+}
