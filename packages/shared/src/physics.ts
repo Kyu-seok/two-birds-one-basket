@@ -149,17 +149,21 @@ function swung(w: WorldState, bird: Bird, thrust: number, dt: number): BirdState
 }
 
 /**
- * A swinging Bird that reaches the top of a ledge other than its partner's catches it and stands
- * there: within `grabReach` below it (its wall) or above it.
+ * A swinging Bird that comes within `grabReach` of the top of a ledge other than its partner's
+ * (up its wall, past its corner or just above it) catches it and stands there.
  */
 function catchLedge(b: BirdState, anchor: BirdState, length: number, around: Around) {
   if (!isSwinging(b, anchor, length)) return;
   const near = around(b.x);
   const home = standingOn(near, anchor.x, anchor.y);
+  const onTop = (s: Span) => Math.min(s.to, Math.max(s.from, b.x));
   const ledge = near.ground.find(
-    (s) => s.key !== home?.key && b.x >= s.from && b.x <= s.to && Math.abs(b.y - s.height) <= PHYSICS.grabReach,
+    (s) => s !== home && Math.hypot(onTop(s) - b.x, s.height - b.y) <= PHYSICS.grabReach,
   );
-  if (ledge) land(b, ledge.height);
+  if (!ledge) return;
+  b.x = onTop(ledge);
+  b.vx = 0;
+  land(b, ledge.height);
 }
 
 /** How far the moving platform a Bird stands on carries it this tick. */

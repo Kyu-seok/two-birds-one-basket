@@ -1,3 +1,4 @@
+import { HARD_PIECES, MEDIUM_PIECES } from "./hazard-pieces.ts";
 import { OPENING } from "./opening.ts";
 
 /**
@@ -7,7 +8,6 @@ import { OPENING } from "./opening.ts";
  *
  * World units are meters; x runs along the Course, y points up, and ground level is y = 0.
  */
-
 export type Tier = "easy" | "medium" | "hard";
 export const TIERS: readonly Tier[] = ["easy", "medium", "hard"];
 
@@ -173,6 +173,8 @@ export const PIECES: readonly Piece[] = [
     ],
     ceilings: [{ from: 3, to: 9, height: 1.8 }],
   },
+  ...MEDIUM_PIECES,
+  ...HARD_PIECES,
 ];
 
 /**
