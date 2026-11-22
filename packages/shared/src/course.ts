@@ -25,9 +25,9 @@ export interface Piece {
   tier: Tier;
   length: number;
   /**
-   * Solid ground, its surface at `height` (never below 0) and solid all the way down. Where no
-   * span covers, there is a bottomless gap. Neighbouring spans of different heights make a step,
-   * whose side is a wall.
+   * Solid ground, its surface at `height` and solid all the way down. Where no span covers, there
+   * is a bottomless gap. Neighbouring spans of different heights make a step, whose side is a
+   * wall. Ground below 0 is the floor of a pit: a Bird down there is caught, not Fallen.
    */
   ground: readonly Span[];
   /** Low ceilings: solid from `height` all the way up. A Bird that jumps into one bonks its head. */
