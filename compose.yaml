@@ -1,0 +1,15 @@
+# Runs on the mini PC behind the existing Cloudflare Tunnel (ADR 0006, #9):
+# twobirds.kyuships.com → http://localhost:8100.
+services:
+  game:
+    build: .
+    image: two-birds-one-rope
+    restart: unless-stopped # back up after a reboot, as long as Docker starts at boot
+    ports:
+      - "127.0.0.1:8100:8100" # local only: the tunnel is the way in
+    volumes:
+      - scores:/data # Teams, Team History and Top 10 survive rebuilds
+    cpu_shares: 2048 # twice the default, so simulation ticks win over CI jobs
+
+volumes:
+  scores:
