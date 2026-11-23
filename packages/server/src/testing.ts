@@ -1,6 +1,6 @@
 /** Test doubles shared by the server's tests: drive a RoomRegistry without sockets or real timers. */
 import { randomUUID } from "node:crypto";
-import { COUNTDOWN_SECONDS, TICK_HZ, courseOf, type ServerMessage, type StoredRun, type TeamInfo, type TopRun } from "@tbob/shared";
+import { COUNTDOWN_SECONDS, TICK_HZ, courseOf, type CourseOf, type ServerMessage, type StoredRun, type TeamInfo, type TopRun } from "@tbob/shared";
 import { createRoomRegistry, type Connection, type Player, type Scheduler } from "./rooms.ts";
 import { pairKey, type Pair, type ScoreStore } from "./scores.ts";
 
@@ -40,6 +40,16 @@ const TEST_COURSE = courseOf([
   { from: TEST_GAP.end, to: 200, height: 0 },
 ]);
 
+/** How long the test Opening is: Distance counts from its end, at 5 m. */
+export const TEST_OPENING_LENGTH = 5;
+
+/**
+ * The test Course again, but with a Run that plays the Opening counting its Distance from
+ * TEST_OPENING_LENGTH, as the real Course counts it from where the random Pieces begin.
+ */
+export const courseWithOpening: CourseOf = (_seed, opening) =>
+  opening ? { ...TEST_COURSE, distanceFrom: TEST_OPENING_LENGTH } : TEST_COURSE;
+
 /** A ScoreStore in memory; `scores.test.ts` holds it to the same contract as the SQLite one. */
 export class MemoryScores implements ScoreStore {
   teams = new Map<string, TeamInfo>();
@@ -70,7 +80,7 @@ export class MemoryScores implements ScoreStore {
   }
 }
 
-export function setup(opts: { now?: () => number } = {}) {
+export function setup(opts: { now?: () => number; courseOf?: CourseOf } = {}) {
   const scheduler = new FakeScheduler();
   const scores = new MemoryScores();
   // Each tick offers the next seed, so each Run's seed differs.
