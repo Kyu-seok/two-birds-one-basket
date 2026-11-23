@@ -12,6 +12,10 @@ To play by hand, `npm run dev` starts the server and client. With no mic or keyb
 - Open the client link with `&keys` added (`http://localhost:5173/?room=ROOMCODE&keys`) to play the other Bird with keys: 0-9 set Thrust 0.0-0.9, `f` is full. Click Ready (or Again on the Run End screen) to start a Run.
 - Teams: give a bot a fixed `--browser ID` (e.g. `bot-ann-0001`) and `--team NAME`; it names a Team at the first Run End, and the pair is recognised in later Rooms. The server keeps scores in SQLite at `DB_PATH` (default `packages/server/data/scores.db`, gitignored).
 
+## Deploying
+
+Production is the mini PC behind a Cloudflare Tunnel (ADR 0006): `compose.yaml` on `127.0.0.1:8100`. Deploying needs a human at home, so run `scripts/deploy-minipc.sh` in your own terminal rather than having an agent do it.
+
 ## Agent skills
 
 ### Issue tracker
