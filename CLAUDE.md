@@ -16,7 +16,7 @@
 
 ### Issue tracker
 
-Issues are tracked in GitHub Issues on `Kyu-seok/two-birds-one-rope`. Read one with `gh issue view <n> --json number,title,body,labels,comments` (plain `gh issue view` prints nothing here). See `docs/agents/issue-tracker.md` for the rest.
+Issues are tracked in GitHub Issues on `Kyu-seok/two-birds-one-rope`. Read one with `gh issue view <n> --json number,title,body,labels,comments` (plain `gh issue view` prints nothing here). Blocking links between tickets are native GitHub dependencies, not text in the body: list them with `gh api repos/Kyu-seok/two-birds-one-rope/issues/<n>/dependencies/blocked_by`. See `docs/agents/issue-tracker.md` for the rest.
 
 ### Triage labels
 
