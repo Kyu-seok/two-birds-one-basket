@@ -1,11 +1,22 @@
+import { followCamera, type Point } from "./camera.ts";
 import {
   BIRDS,
+  OPENING,
+  OPENING_HINTS,
   PHYSICS,
-  TEST_COURSE,
+  isBlowing,
+  layoutAt,
   loudnessToDb,
+  runCourse,
+  wholeSecondsLeft,
   type Bird,
   type BirdState,
+  type Course,
+  type Crumbling,
+  type Layout,
   type PerBird,
+  type Span,
+  type RunState,
   type WorldState,
 } from "@tbob/shared";
 
@@ -17,25 +28,37 @@ const GAP_DEPTH = 12;
 /** How high a slack Rope lying on the ground is drawn, so it sits on the surface. */
 const ROPE_REST_Y = 0.04;
 
+/** Each Bird's colour, shared with anything else that marks a Bird (the chat). */
+export const BIRD_COLORS: PerBird<string> = { pink: "#f4a6a6", blue: "#8ec5f2" };
+/** Each Bird's name, as players see it. */
+export const BIRD_NAMES: PerBird<string> = { pink: "Pink", blue: "Blue" };
+
 const COLORS = {
   skyTop: "#a6d8f4",
   skyBottom: "#fdf6ec",
   ground: "#b8e0b0",
   groundEdge: "#8cc485",
   gap: "#3d3a4bcc",
+  ceiling: "#9a8f9e",
+  ceilingEdge: "#7a6f80",
+  crumble: "#e2c99a",
+  crumbleEdge: "#c4a46a",
+  moving: "#c9d8ee",
+  movingEdge: "#8fa8cc",
+  gust: "#ffffffcc",
   grid: "#3d3a4b22",
   rope: "#8a5a32",
-  bird: { pink: "#f4a6a6", blue: "#8ec5f2" } as PerBird<string>,
+  bird: BIRD_COLORS,
   ink: "#3d3a4b",
   meterBg: "#ffffff99",
+  sign: "#fffaf0ee",
 };
 
-const NAME: PerBird<string> = { pink: "Pink", blue: "Blue" };
 
 export interface Frame {
   world: WorldState;
-  /** How far the Bird behind has got, in meters. */
-  distance: number;
+  /** The Run, for its countdown and Distance. */
+  run: RunState;
   /** What each Bird is doing this frame: own Bird from the local mic, partner's from the server. */
   thrust: PerBird<number>;
   present: PerBird<boolean>;
@@ -43,14 +66,13 @@ export interface Frame {
   myLoudness: number;
   pings: PerBird<number | null>;
   roomCode: string;
-  /** Seconds left to show the Fallen banner; 0 hides it. */
-  fallenBanner: number;
   dt: number;
 }
 
 export function createRenderer(canvas: HTMLCanvasElement) {
   const ctx = canvas.getContext("2d")!;
   const flapPhase: PerBird<number> = { pink: 0, blue: 0 };
+  let cam: Point | null = null;
 
   function resize() {
     const dpr = window.devicePixelRatio || 1;
@@ -67,9 +89,11 @@ export function createRenderer(canvas: HTMLCanvasElement) {
     const { pink, blue } = f.world.birds;
     for (const bird of BIRDS) flapPhase[bird] += f.dt * (3 + 18 * f.thrust[bird]);
 
-    // One shared camera, centred between the two Birds: the same view on both screens.
-    const camX = (pink.x + blue.x) / 2;
-    const camY = (pink.y + blue.y) / 2;
+    // One shared camera, following the point between the two Birds: the same view on both screens.
+    const target = { x: (pink.x + blue.x) / 2, y: (pink.y + blue.y) / 2 };
+    cam = cam ? followCamera(cam, target, f.dt) : target;
+    const { x: camX, y: camY } = cam;
+    const course = runCourse(f.run);
     const sx = (x: number) => w / 2 + (x - camX) * PX_PER_M;
     const sy = (y: number) => h * 0.6 - (y - camY) * PX_PER_M;
 
@@ -94,8 +118,10 @@ export function createRenderer(canvas: HTMLCanvasElement) {
       ctx.fillText(`${m} m`, sx(m) + 4, sy(0) - 6);
     }
 
-    drawGround(ctx, sx, sy, left, right, h);
-    drawRope(ctx, sx, sy, pink, blue, f.world.ropeLength);
+    const near = layoutAt(course, left, right, f.world.time, f.world.crumbling);
+    drawCourse(ctx, sx, sy, near, left, right, h, f.world.time, f.world.crumbling);
+    drawHints(ctx, sx, sy, course, left, right);
+    drawRope(ctx, sx, sy, pink, blue, f.world.ropeLength, near.ground);
     for (const bird of BIRDS) {
       const b = f.world.birds[bird];
       ctx.save();
@@ -109,36 +135,115 @@ export function createRenderer(canvas: HTMLCanvasElement) {
   };
 }
 
-function drawGround(
+/**
+ * The Course from the same Piece data and Run clock the server collides with: ground, gaps, low
+ * ceilings, and the timed hazards where they are now.
+ */
+function drawCourse(
   ctx: CanvasRenderingContext2D,
   sx: (x: number) => number,
   sy: (y: number) => number,
+  near: Layout,
   left: number,
   right: number,
   h: number,
+  time: number,
+  crumbling: Crumbling,
 ) {
+  // Behind everything, below ground level, the gaps: open sky fading to dark.
   const top = sy(0);
-  if (top >= h) return;
-  // Ground runs between the gaps; each gap is open sky fading to dark below.
-  let from = left;
-  const solid = (to: number) => {
-    if (to <= from) return;
-    ctx.fillStyle = COLORS.ground;
-    ctx.fillRect(sx(from), top, sx(to) - sx(from), h - top);
-    ctx.fillStyle = COLORS.groundEdge;
-    ctx.fillRect(sx(from), top, sx(to) - sx(from), 4);
-  };
-  for (const gap of TEST_COURSE.gaps) {
-    if (gap.end < left || gap.start > right) continue;
-    solid(gap.start);
+  if (top < h) {
     const fade = ctx.createLinearGradient(0, top, 0, sy(-GAP_DEPTH));
     fade.addColorStop(0, "#3d3a4b00");
     fade.addColorStop(1, COLORS.gap);
     ctx.fillStyle = fade;
-    ctx.fillRect(sx(gap.start), top, sx(gap.end) - sx(gap.start), h - top);
-    from = gap.end;
+    ctx.fillRect(sx(left), top, sx(right) - sx(left), h - top);
   }
-  solid(right);
+  for (const g of near.ground) {
+    const y = sy(g.height);
+    if (y >= h) continue;
+    const [fill, edge] = g.crumble
+      ? [COLORS.crumble, COLORS.crumbleEdge]
+      : g.move
+        ? [COLORS.moving, COLORS.movingEdge]
+        : [COLORS.ground, COLORS.groundEdge];
+    // A crumbling platform that's been stood on shakes harder as it is about to give way.
+    const touched = crumbling[g.key];
+    const shake = g.crumble && touched !== undefined ? Math.sin(time * 60) * 2 * Math.min(1, (time - touched) / g.crumble.holdSeconds) : 0;
+    ctx.fillStyle = fill;
+    ctx.fillRect(sx(g.from) + shake, y, sx(g.to) - sx(g.from), h - y);
+    ctx.fillStyle = edge;
+    ctx.fillRect(sx(g.from) + shake, y, sx(g.to) - sx(g.from), 4);
+  }
+  for (const c of near.ceilings) {
+    const y = sy(c.height);
+    if (y <= 0) continue;
+    ctx.fillStyle = COLORS.ceiling;
+    ctx.fillRect(sx(c.from), 0, sx(c.to) - sx(c.from), y);
+    ctx.fillStyle = COLORS.ceilingEdge;
+    ctx.fillRect(sx(c.from), y - 4, sx(c.to) - sx(c.from), 4);
+  }
+  drawGusts(ctx, sx, sy, near, time);
+}
+
+/** How long before a gust a faint flurry warns of it. */
+const GUST_WARNING = 0.6;
+
+/** Streaks of wind over each blowing gust, drifting the way it blows; faint just before it starts. */
+function drawGusts(ctx: CanvasRenderingContext2D, sx: (x: number) => number, sy: (y: number) => number, near: Layout, time: number) {
+  ctx.strokeStyle = COLORS.gust;
+  ctx.lineCap = "round";
+  for (const g of near.gusts) {
+    const blowing = isBlowing(g, time);
+    if (!blowing && !isBlowing(g, time + GUST_WARNING)) continue;
+    ctx.globalAlpha = blowing ? 0.9 : 0.3;
+    ctx.lineWidth = blowing ? 3 : 2;
+    const width = g.to - g.from;
+    for (let i = 0; i < width * 2; i++) {
+      // Each streak drifts along at the gust's speed, wrapping round within the gust.
+      const along = ((i * 0.53 + time * g.push * 2) % width + width) % width;
+      const x = g.from + along;
+      const y = 0.4 + ((i * 0.37) % 1) * 2.2;
+      ctx.beginPath();
+      ctx.moveTo(sx(x), sy(y));
+      ctx.lineTo(sx(x + Math.sign(g.push) * 0.6), sy(y));
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+/** The Opening's hints, each a little sign standing on the ground by its teaching step. */
+function drawHints(
+  ctx: CanvasRenderingContext2D,
+  sx: (x: number) => number,
+  sy: (y: number) => number,
+  course: Course,
+  left: number,
+  right: number,
+) {
+  ctx.font = "bold 15px system-ui";
+  ctx.textAlign = "center";
+  for (const { x, piece } of course.piecesBetween(left - 10, right + 10)) {
+    if (piece !== OPENING) continue;
+    OPENING_HINTS.forEach((hint, i) => {
+      // Neighbouring signs stand at alternate heights so their text doesn't overlap.
+      const cx = sx(x + hint.at);
+      const cy = sy(i % 2 ? 3.4 : 2.5);
+      const width = ctx.measureText(hint.text).width + 20;
+      ctx.strokeStyle = COLORS.groundEdge;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx, sy(0));
+      ctx.stroke();
+      ctx.fillStyle = COLORS.sign;
+      ctx.fillRect(cx - width / 2, cy - 16, width, 28);
+      ctx.strokeRect(cx - width / 2, cy - 16, width, 28);
+      ctx.fillStyle = COLORS.ink;
+      ctx.fillText(hint.text, cx, cy + 3);
+    });
+  }
 }
 
 /** The Rope between the two Birds' bodies, sagging when it has slack. */
@@ -149,6 +254,7 @@ function drawRope(
   a: BirdState,
   b: BirdState,
   length: number,
+  ground: Span[],
 ) {
   const ax = a.x;
   const ay = a.y + BODY_Y;
@@ -162,9 +268,8 @@ function drawRope(
   let controlY = (ay + by) / 2 - sag * 2;
   // Slack Rope over ground rests on the ground instead of passing through it.
   const midX = (ax + bx) / 2;
-  if (!TEST_COURSE.gaps.some((g) => midX > g.start && midX < g.end)) {
-    controlY = Math.max(controlY, 2 * ROPE_REST_Y - (ay + by) / 2);
-  }
+  const under = ground.filter((g) => midX >= g.from && midX <= g.to).map((g) => g.height);
+  if (under.length) controlY = Math.max(controlY, 2 * (Math.max(...under) + ROPE_REST_Y) - (ay + by) / 2);
   ctx.strokeStyle = COLORS.rope;
   ctx.lineWidth = 3;
   ctx.lineCap = "round";
@@ -219,15 +324,15 @@ function drawHud(ctx: CanvasRenderingContext2D, f: Frame, w: number, h: number) 
   ctx.fillStyle = COLORS.ink;
   ctx.font = "14px system-ui";
   ctx.textAlign = "left";
-  ctx.fillText(`Room ${f.roomCode} · you are ${NAME[f.myBird]}`, 16, 24);
-  ctx.fillText(`Distance ${f.distance.toFixed(1)} m`, 16, 44);
+  ctx.fillText(`Room ${f.roomCode} · you are ${BIRD_NAMES[f.myBird]}`, 16, 24);
+  if ("distance" in f.run) ctx.fillText(`Distance ${f.run.distance.toFixed(1)} m`, 16, 44);
   ctx.fillText("Hold Space for full Thrust (test)", 16, 64);
 
   const pingText = (bird: Bird) => {
     const you = bird === f.myBird ? " (you)" : "";
-    if (!f.present[bird]) return `${NAME[bird]}${you}: waiting…`;
+    if (!f.present[bird]) return `${BIRD_NAMES[bird]}${you}: waiting…`;
     const ms = f.pings[bird];
-    return `${NAME[bird]}${you}: ${ms === null ? "–" : `${ms} ms`}`;
+    return `${BIRD_NAMES[bird]}${you}: ${ms === null ? "–" : `${ms} ms`}`;
   };
   ctx.textAlign = "right";
   BIRDS.forEach((bird, i) => {
@@ -237,11 +342,14 @@ function drawHud(ctx: CanvasRenderingContext2D, f: Frame, w: number, h: number) 
     ctx.fillText(pingText(bird), w - 16, 24 + i * 20);
   });
 
-  if (f.fallenBanner > 0) {
+  if (f.run.phase === "countdown") {
+    // 3, 2, 1, each shrinking and fading through its second.
+    const n = wholeSecondsLeft(f.run.secondsLeft);
+    const through = n - f.run.secondsLeft;
     ctx.textAlign = "center";
-    ctx.font = "bold 32px system-ui";
-    ctx.globalAlpha = Math.min(1, f.fallenBanner);
-    ctx.fillText("Fallen! Back to the start", w / 2, h * 0.3);
+    ctx.font = `bold ${Math.round(96 - 32 * through)}px system-ui`;
+    ctx.globalAlpha = 1 - 0.6 * through;
+    ctx.fillText(String(n), w / 2, h * 0.32);
     ctx.globalAlpha = 1;
   }
 

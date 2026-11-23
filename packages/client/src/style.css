@@ -17,10 +17,60 @@ button:hover { filter: brightness(1.05); }
 .link { width: 100%; box-sizing: border-box; font: inherit; padding: 8px; border-radius: 8px; border: 1px solid #ccc; }
 .error { color: #b33; }
 canvas { display: block; width: 100vw; height: 100vh; }
-#sensitivity {
+#controls {
   position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
   display: flex; align-items: center; gap: 10px; padding: 8px 14px;
   background: #fdf6eccc; border-radius: 999px; font-size: 14px;
 }
-#sensitivity[hidden] { display: none; }
-#sensitivity output { min-width: 1.5em; text-align: right; font-weight: 600; }
+#controls[hidden] { display: none; }
+#controls label { display: flex; align-items: center; gap: 10px; }
+#controls button { padding: 4px 12px; font-size: 14px; }
+#controls output { min-width: 1.5em; text-align: right; font-weight: 600; }
+.meter { height: 14px; background: #0001; border-radius: 7px; overflow: hidden; }
+.meter-fill { height: 100%; width: 0; background: var(--accent); transition: width 50ms linear; }
+.countdown { font-weight: 600; }
+#chat {
+  position: fixed; left: 16px; bottom: 16px; width: min(300px, calc(100% - 32px));
+  display: flex; flex-direction: column; gap: 6px; font-size: 14px;
+}
+#chat[hidden] { display: none; }
+#chat-log {
+  list-style: none; margin: 0; padding: 0; max-height: 30vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 4px;
+}
+#chat-log li {
+  align-self: flex-start; max-width: 100%; padding: 4px 10px; border-radius: 10px;
+  color: var(--ink); overflow-wrap: anywhere;
+}
+#chat-input {
+  font: inherit; padding: 8px 12px; border-radius: 999px; border: 1px solid #0002; background: #fdf6eccc;
+}
+#chat-input:focus { background: var(--paper); outline: 2px solid var(--accent-2); }
+#run {
+  position: absolute; inset: 0; margin: auto; width: min(360px, calc(100% - 32px)); height: fit-content;
+  background: var(--paper); border-radius: 16px; padding: 20px 24px; box-shadow: 0 8px 30px #0002;
+  text-align: center; max-height: calc(100vh - 32px); overflow-y: auto; box-sizing: border-box;
+}
+#run[hidden] { display: none; }
+#run h2 { margin: 0 0 8px; font-size: 1.3rem; }
+#run .distance { font-size: 2.4rem; font-weight: 700; margin: 8px 0; }
+#run .partner { font-size: 14px; opacity: 0.8; }
+#run button.pressed { background: var(--accent-2); }
+#run button:disabled { opacity: 0.5; cursor: default; }
+#run h3 { margin: 16px 0 4px; font-size: 1rem; }
+#run .table { max-height: 180px; overflow-y: auto; }
+#run table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+#run th, #run td { padding: 3px 6px; text-align: left; }
+#run th { font-weight: 600; opacity: 0.7; }
+#run tr.best td { background: var(--accent); font-weight: 700; }
+#run tr.ours td { background: var(--accent-2); }
+#team-form { margin-top: 12px; }
+#team-form p { font-size: 14px; margin: 0 0 6px; }
+#team-name { font: inherit; padding: 8px 12px; border-radius: 10px; border: 1px solid #0002; width: 60%; }
+#voice-status {
+  position: fixed; right: 16px; bottom: 16px; margin: 0; padding: 6px 12px;
+  background: #fdf6eccc; border-radius: 999px; font-size: 14px;
+}
+#voice-status[hidden] { display: none; }
+#voice-status[data-status="unavailable"] { color: #b33; }
+.hint { font-size: 14px; opacity: 0.8; }

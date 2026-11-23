@@ -1,15 +1,31 @@
 import {
   BIRDS,
-  TEST_COURSE,
+  TICK_HZ,
   TICK_MS,
+  browserId,
+  chatText,
+  courseForSeed,
   initialWorld,
-  stepWorld,
+  newCourseSeed,
+  newRoomRun,
+  RECONNECT_SECONDS,
+  playerLeft,
+  playerReturned,
+  setReady,
+  stepRun,
+  partnerOf,
   type Bird,
   type ClientMessage,
+  type CourseOf,
   type PerBird,
+  type RunEndReason,
+  type RunState,
   type ServerMessage,
+  voiceSignal,
   type WorldState,
+  teamName,
 } from "@tbob/shared";
+import type { Pair, ScoreStore } from "./scores.ts";
 
 /** One player's link to the server (a WebSocket in production). */
 export interface Connection {
@@ -30,8 +46,11 @@ export interface Player {
 export interface RoomRegistry {
   /** Creates an empty Room and returns its Room Code. */
   createRoom(): string;
-  /** Puts the connection into the Room; returns null (after telling the client why) if it can't join. */
-  connect(roomCode: string, conn: Connection): Player | null;
+  /**
+   * Puts the connection into the Room; returns null (after telling the client why) if it can't join.
+   * `browser` is the Browser ID the client sent; anything malformed counts as none.
+   */
+  connect(roomCode: string, conn: Connection, browser?: unknown): Player | null;
 }
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -53,13 +72,34 @@ function reject(conn: Connection, msg: ServerMessage): null {
   return null;
 }
 
+/**
+ * Who a Bird is kept for. It outlasts a disconnect: the Bird (and its Calibration) stays reserved
+ * for that browser until `reservedUntil`.
+ */
+interface Seat {
+  /** The player's Browser ID, or null if they sent none (or nobody has the Bird). */
+  browser: string | null;
+  /** The tick a dropped player's reserved Bird is freed on; null while they are here (or have no Browser ID). */
+  reservedUntil: number | null;
+  /** Whether the player has calibrated; it lasts for every Run while they stay in the Room. */
+  calibrated: boolean;
+}
+
+const emptySeat = (): Seat => ({ browser: null, reservedUntil: null, calibrated: false });
+
 interface Room {
   code: string;
   players: Partial<PerBird<Connection>>;
+  seats: PerBird<Seat>;
   world: WorldState;
   thrust: PerBird<number>;
   pings: PerBird<number | null>;
+  run: RunState;
+  /** A player asked for the next Run to start with the Opening again. */
+  replayOpening: boolean;
   tick: number;
+  /** How many ticks the current Run has been running (pauses don't count), and the pair playing it; null outside a Run. */
+  runStart: { ticks: number; pair: Pair | null } | null;
   stopLoop: (() => void) | null;
 }
 
@@ -67,14 +107,106 @@ function broadcast(room: Room, msg: ServerMessage) {
   for (const bird of BIRDS) room.players[bird]?.send(msg);
 }
 
-function tick(room: Room) {
-  room.world = stepWorld(room.world, room.thrust, TICK_MS / 1000, TEST_COURSE);
-  room.tick++;
-  if (room.world.fallen) {
-    // Until the Run lifecycle exists, Fallen just starts the test Course again.
-    room.world = initialWorld();
-    broadcast(room, { type: "fallen" });
+interface Deps {
+  scheduler: Scheduler;
+  scores: ScoreStore;
+  makeCode?: () => string;
+  /** The wall clock, in ms since the epoch, for when a Run ended. */
+  now?: () => number;
+  /** A new Course seed, for each Run. */
+  makeSeed?: () => number;
+  /** The Course for a seed, with or without the Opening. Tests swap in a fixed Course. */
+  courseOf?: CourseOf;
+}
+
+/** Deps with every default filled in. */
+type Settled = Required<Deps>;
+
+/** The Browser IDs of the two players in the Room, or null unless both are here and sent one. */
+export function pairOf(room: Pick<Room, "seats" | "players">): Pair | null {
+  const [pink, blue] = [room.seats.pink.browser, room.seats.blue.browser];
+  if (!room.players.pink || !room.players.blue) return null;
+  return pink && blue && pink !== blue ? [pink, blue] : null;
+}
+
+/** Tells both players their Team (if any), its Team History and the Top 10. */
+function sendScores(room: Room, scores: ScoreStore) {
+  const pair = pairOf(room);
+  const team = pair && scores.teamOf(pair);
+  broadcast(room, {
+    type: "scores",
+    team,
+    canNameTeam: pair !== null && team === null,
+    history: pair ? scores.history(pair) : [],
+    top10: scores.top10(),
+  });
+}
+
+/**
+ * Whether a Run starting now plays the Opening: on a Team's first Run, for players with no Team
+ * yet, or when a player asked to replay it.
+ */
+function playsOpening(room: Room, scores: ScoreStore): boolean {
+  if (room.replayOpening) return true;
+  const pair = pairOf(room);
+  return !pair || !scores.teamOf(pair) || scores.history(pair).length === 0;
+}
+
+/** Lets anyone take a Bird its player has left, forgetting their Calibration. */
+function freeBird(room: Room, bird: Bird) {
+  room.seats[bird] = emptySeat();
+}
+
+/**
+ * A player is gone. Their Bird waits for their browser as long as a paused Run would; without a
+ * Browser ID nobody can come back to it, so it is free at once and a Run under way is Abandoned.
+ */
+function playerGone(room: Room, bird: Bird, deps: Settled) {
+  const canReturn = room.seats[bird].browser !== null;
+  if (canReturn) room.seats[bird].reservedUntil = room.tick + RECONNECT_SECONDS * TICK_HZ;
+  else freeBird(room, bird);
+  setRun(room, deps, playerLeft(room.run, bird, canReturn));
+}
+
+/** Nobody is in the Room and no Bird is kept for anyone coming back. */
+function deserted(room: Room): boolean {
+  return BIRDS.every((b) => !room.players[b] && room.seats[b].browser === null);
+}
+
+/** Records the Run that just ended in the Team History (and maybe the Top 10). */
+function saveRun(room: Room, deps: Settled, end: RunEndReason, distance: number) {
+  const { runStart } = room;
+  if (!runStart) return;
+  deps.scores.saveRun(runStart.pair, { distance, end, seconds: runStart.ticks / TICK_HZ, endedAt: deps.now() });
+  room.runStart = null;
+}
+
+/** Moves the Room's Run on to `next`, recording it if it has just ended. */
+function setRun(room: Room, deps: Settled, next: RunState) {
+  const ending = room.run.phase !== "ended" && next.phase === "ended";
+  room.run = next;
+  if (next.phase === "ended" && ending) {
+    saveRun(room, deps, next.end, next.distance);
+    sendScores(room, deps.scores);
   }
+}
+
+function tick(room: Room, deps: Settled) {
+  const before = room.run.phase;
+  const nextCourse = () => ({ seed: deps.makeSeed(), opening: playsOpening(room, deps.scores) });
+  const dt = TICK_MS / 1000;
+  const { run, world } = stepRun(room.run, room.world, room.thrust, dt, nextCourse, deps.courseOf);
+  if (before === "running" && room.runStart) room.runStart.ticks++;
+  setRun(room, deps, run);
+  room.world = world;
+  room.tick++;
+  // A replay asked for is used up by the Run it starts.
+  if (before !== "countdown" && run.phase === "countdown") room.replayOpening = false;
+  for (const bird of BIRDS) {
+    const until = room.seats[bird].reservedUntil;
+    if (until !== null && room.tick >= until) freeBird(room, bird);
+  }
+  if (before === "countdown" && run.phase === "running") room.runStart = { ticks: 0, pair: pairOf(room) };
   broadcast(room, {
     type: "state",
     tick: room.tick,
@@ -82,12 +214,28 @@ function tick(room: Room) {
     thrust: { ...room.thrust },
     pings: { ...room.pings },
     present: { pink: !!room.players.pink, blue: !!room.players.blue },
+    calibrated: { pink: room.seats.pink.calibrated, blue: room.seats.blue.calibrated },
+    run: room.run,
+    replayOpening: room.replayOpening,
   });
 }
 
-export function createRoomRegistry(deps: { scheduler: Scheduler; makeCode?: () => string }): RoomRegistry {
-  const makeCode = deps.makeCode ?? randomCode;
+export function createRoomRegistry(given: Deps): RoomRegistry {
+  const deps: Settled = {
+    ...given,
+    makeCode: given.makeCode ?? randomCode,
+    now: given.now ?? Date.now,
+    makeSeed: given.makeSeed ?? newCourseSeed,
+    courseOf: given.courseOf ?? courseForSeed,
+  };
+  const { scores, makeCode } = deps;
   const byCode = new Map<string, Room>();
+  /** The Room ends once nobody is in it and nobody can come back to it. */
+  const closeIfDeserted = (room: Room) => {
+    if (!deserted(room)) return;
+    room.stopLoop?.();
+    byCode.delete(room.code);
+  };
 
   return {
     createRoom() {
@@ -96,23 +244,41 @@ export function createRoomRegistry(deps: { scheduler: Scheduler; makeCode?: () =
       byCode.set(code, {
         code,
         players: {},
+        seats: { pink: emptySeat(), blue: emptySeat() },
         world: initialWorld(),
         thrust: { pink: 0, blue: 0 },
         pings: { pink: null, blue: null },
+        run: newRoomRun(),
+        replayOpening: false,
         tick: 0,
+        runStart: null,
         stopLoop: null,
       });
       return code;
     },
-    connect(roomCode, conn) {
+    connect(roomCode, conn, browser) {
       const room = byCode.get(roomCode);
       if (!room) return reject(conn, { type: "roomNotFound" });
-      const bird = BIRDS.find((b) => !room.players[b]);
+      const id = browserId(browser);
+      // A returning browser gets its own Bird back; anyone else gets a Bird nobody has reserved.
+      const bird =
+        BIRDS.find((b) => !room.players[b] && id !== null && room.seats[b].browser === id) ??
+        BIRDS.find((b) => !room.players[b] && room.seats[b].browser === null);
       if (!bird) return reject(conn, { type: "roomFull" });
 
       room.players[bird] = conn;
+      room.seats[bird].browser = id;
+      room.seats[bird].reservedUntil = null;
+      room.run = playerReturned(room.run, bird);
+      // Back to a Run their partner has left too: it waits on for the partner.
+      const partner = partnerOf(bird);
+      if (room.run.phase === "running" && !room.players[partner]) playerGone(room, partner, deps);
       conn.send({ type: "joined", bird, roomCode });
-      room.stopLoop ??= deps.scheduler.every(TICK_MS, () => tick(room));
+      sendScores(room, scores);
+      room.stopLoop ??= deps.scheduler.every(TICK_MS, () => {
+        tick(room, deps);
+        closeIfDeserted(room);
+      });
 
       return {
         receive(msg) {
@@ -127,6 +293,37 @@ export function createRoomRegistry(deps: { scheduler: Scheduler; makeCode?: () =
             case "reportPing":
               room.pings[bird] = Number.isFinite(msg.ms) ? Math.max(0, Math.round(msg.ms)) : null;
               break;
+            case "calibrated":
+              room.seats[bird].calibrated = msg.value === true;
+              // Recalibrating takes back Ready.
+              if (!room.seats[bird].calibrated) room.run = setReady(room.run, bird, false);
+              break;
+            case "ready":
+              room.run = setReady(room.run, bird, msg.value === true && room.seats[bird].calibrated);
+              break;
+            case "replayOpening":
+              room.replayOpening = msg.value === true;
+              break;
+            case "signal": {
+              const signal = voiceSignal(msg.signal);
+              const partner = room.players[partnerOf(bird)];
+              if (signal && partner) partner.send({ type: "signal", signal });
+              break;
+            }
+            case "chat": {
+              const text = chatText(msg.text);
+              if (text) broadcast(room, { type: "chat", bird, text });
+              break;
+            }
+            case "nameTeam": {
+              const pair = pairOf(room);
+              const name = teamName(msg.name);
+              if (pair && name && !scores.teamOf(pair)) {
+                scores.nameTeam(pair, name);
+                sendScores(room, scores);
+              }
+              break;
+            }
           }
         },
         disconnect() {
@@ -134,10 +331,8 @@ export function createRoomRegistry(deps: { scheduler: Scheduler; makeCode?: () =
           delete room.players[bird];
           room.thrust[bird] = 0;
           room.pings[bird] = null;
-          if (!room.players.pink && !room.players.blue) {
-            room.stopLoop?.();
-            byCode.delete(room.code);
-          }
+          playerGone(room, bird, deps);
+          closeIfDeserted(room);
         },
       };
     },

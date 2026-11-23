@@ -5,16 +5,22 @@
 export interface Mic {
   /** Smoothed RMS of the mic signal, 0..1. */
   loudness(): number;
+  /** The mic stream itself, also sent to the partner as voice chat (ADR 0001). Absent in keys mode. */
+  stream?: MediaStream;
 }
 
 /** Smoothing time constants: rise quickly when a voice starts, fall a little slower so a held note reads as steady. */
 const RISE_SECONDS = 0.05;
 const FALL_SECONDS = 0.15;
 
+/**
+ * One stream for Calibration, Thrust and voice chat, so all three hear the same thing. Echo
+ * cancellation stays on so the partner's voice from speakers doesn't become our Thrust.
+ */
+const MIC_CONSTRAINTS: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: false, autoGainControl: false };
+
 export async function openMic(): Promise<Mic> {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false },
-  });
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: MIC_CONSTRAINTS });
   const ctx = new AudioContext();
   const analyser = ctx.createAnalyser();
   analyser.fftSize = 1024;
@@ -25,6 +31,7 @@ export async function openMic(): Promise<Mic> {
   let lastRead = performance.now();
 
   return {
+    stream,
     loudness() {
       analyser.getFloatTimeDomainData(buf);
       let sum = 0;

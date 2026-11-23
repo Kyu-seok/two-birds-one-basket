@@ -1,5 +1,6 @@
 /**
- * Loudness → Thrust mapping until Calibration exists.
+ * Loudness → Thrust mapping. After Calibration, `calibratedRange` sets the range;
+ * before it, `rangeForSensitivity` gives a fixed default.
  * Loudness is the RMS of the mic signal (0..1). It is mapped on a decibel scale,
  * which matches how loud a voice sounds. Each player picks a Sensitivity: higher
  * means a quieter voice already gives full Thrust.
@@ -40,4 +41,52 @@ export function loudnessToThrust(
 ): number {
   const t = (loudnessToDb(loudness) - range.floorDb) / (range.fullDb - range.floorDb);
   return Math.min(1, Math.max(0, t));
+}
+
+/** A player's Calibration: their Noise Floor and Full Voice, in dBFS. */
+export interface Calibration {
+  noiseFloorDb: number;
+  fullVoiceDb: number;
+}
+
+/** `tooClose`: the voice step was too near the Noise Floor (a noisy room or a quiet voice) to control a Bird. */
+export type CalibrationResult = { ok: true; calibration: Calibration } | { ok: false; reason: "tooClose" };
+
+/** Room noise this far above the measured Noise Floor still gives no Thrust. */
+export const NOISE_MARGIN_DB = 5;
+/** Full Voice must be at least this far above the Noise Floor. */
+export const MIN_VOICE_SPAN_DB = 10;
+
+/** The value below which `p` (0..1) of the samples fall. */
+function percentile(values: number[], p: number): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  if (sorted.length === 0) return 0;
+  return sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]!;
+}
+
+/** Turns the Loudness samples of the silence step and the voice step into a Calibration. */
+export function calibrate(silence: number[], voice: number[]): CalibrationResult {
+  const noiseFloorDb = loudnessToDb(percentile(silence, 0.9));
+  const fullVoiceDb = loudnessToDb(percentile(voice, 0.9));
+  if (fullVoiceDb - noiseFloorDb < MIN_VOICE_SPAN_DB) return { ok: false, reason: "tooClose" };
+  return { ok: true, calibration: { noiseFloorDb, fullVoiceDb } };
+}
+
+/** How far one step of Sensitivity moves the calibrated range, in dB. */
+const SENSITIVITY_STEP_DB = 3;
+/** The narrowest the calibrated range gets, in dB. */
+const MIN_RANGE_DB = 3;
+
+/**
+ * The Thrust range a Calibration gives at a Sensitivity. The default Sensitivity uses the
+ * Calibration as measured; each step above moves the range down (a quieter voice is enough),
+ * each step below moves it up. The bottom never drops below the Noise Floor plus margin.
+ */
+export function calibratedRange(cal: Calibration, sensitivity: number): ThrustRange {
+  const s = Math.min(SENSITIVITY_MAX, Math.max(SENSITIVITY_MIN, sensitivity));
+  const shift = (s - SENSITIVITY_DEFAULT) * SENSITIVITY_STEP_DB;
+  const lowest = cal.noiseFloorDb + NOISE_MARGIN_DB;
+  const floorDb = Math.max(lowest, lowest - shift);
+  const fullDb = Math.max(floorDb + MIN_RANGE_DB, cal.fullVoiceDb - shift);
+  return { floorDb, fullDb };
 }

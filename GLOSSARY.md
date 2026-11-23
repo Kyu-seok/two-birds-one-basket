@@ -5,7 +5,7 @@ A 2-player co-op voice platformer: two players in different places use their voi
 ## Rooms and Runs
 
 **Room**:
-The shared space two players are connected to, identified by a Room Code and shareable link. It lasts from the first player joining until both leave.
+The shared space two players are connected to, identified by a Room Code and shareable link. It lasts from the first player joining until both have left and neither can still come back.
 _Avoid_: Session, lobby, game, match
 
 **Room Code**:
@@ -14,6 +14,17 @@ The short code that identifies a Room, shown alongside its link.
 **Run**:
 One attempt at the Course, from the countdown until the Run ends. A Room holds many Runs.
 _Avoid_: Game, round, match, attempt
+
+**Ready**:
+A player's press saying they are set to start the Room's first Run; the countdown starts once both have pressed it. Only a calibrated player can be Ready.
+_Avoid_: Start, go
+
+**Again**:
+Ready, pressed on the Run End screen to start the next Run.
+_Avoid_: Retry, restart
+
+**Paused**:
+A Run frozen because a player left mid-Run, waiting a short while for them to come back to their Bird. If they return in time it carries on; if not, it ends as Abandoned.
 
 **Run End**:
 How a Run finished: **Fallen** (both Birds dropped off the Course with nothing holding them) or **Abandoned** (a player left and didn't reconnect in time). A single Bird that drops hangs from the Rope and can be brought back up, so it doesn't end the Run.
@@ -28,6 +39,23 @@ _Avoid_: Avatar, player character, Side, P1/P2
 **Rope**:
 The line joining the two Birds. Each Bird moves freely within its length. On the ground a tight Rope stops the Bird in front, without dragging the one behind; a Bird off the ground hangs and swings from it.
 _Avoid_: Tether, chain, leash
+
+**Browser ID**:
+The lasting identity of one player's browser. It is how a returning player gets their Bird back, and how a pair is recognised as a Team.
+_Avoid_: User ID, account, player ID
+
+**Chat**:
+Short text messages the two players in a Room send each other.
+
+**Swing**:
+A Bird hanging from the Rope, its partner standing, pushing itself forward along the Rope's arc with a jump-level voice.
+
+**Catch**:
+A swinging Bird grabbing a ledge it reaches and standing on it.
+_Avoid_: Grab, grapple
+
+**Bonk**:
+A Bird jumping into a low ceiling and dropping straight back down. It never hurts; it only cuts the jump short.
 
 **Team**:
 A named pair of players, recognised automatically when both players' browsers belong to it. A player can belong to many Teams.
@@ -71,6 +99,14 @@ _Avoid_: Tutorial, intro level
 One hand-made building block of the Course, placed in random order after the Opening.
 _Avoid_: Chunk, segment, section, level
 
+**Pit**:
+A drop in the Course with a floor: a Bird that lands in it is caught there, not Fallen, and climbs or is hauled back out.
+_Avoid_: Hole, trap
+
+**Gust**:
+Wind that blows in bursts over part of the Course, pushing any Bird there along it or back. It never hurts.
+_Avoid_: Wind zone, fan
+
 **Tier**:
 A Piece's difficulty: Easy, Medium or Hard. Harder Tiers appear more often with Distance.
 _Avoid_: Difficulty level
@@ -78,7 +114,7 @@ _Avoid_: Difficulty level
 ## Scoring
 
 **Distance**:
-How far along the Course the Bird behind got in a Run, in meters; the Run's score.
+How far along the Course the Bird behind got in a Run, in meters; the Run's score. It counts from where the random Pieces begin, so the start and the Opening are 0 m.
 _Avoid_: Height, progress, score
 
 **Team History**:
