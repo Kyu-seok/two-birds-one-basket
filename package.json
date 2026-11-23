@@ -9,6 +9,7 @@
     "dev": "npm run dev --workspace=@tbob/server & npm run dev --workspace=@tbob/client",
     "typecheck": "tsc -p packages/shared && tsc -p packages/server && tsc -p packages/client",
     "bot": "npm run bot --workspace=@tbob/server --",
+    "smoke": "tsx packages/server/src/smoke.ts",
     "test": "vitest run",
     "prepare": "husky"
   },
