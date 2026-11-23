@@ -17,3 +17,31 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+
+  # Deploys main to the mini PC once Check passes (ADR 0006, #9). The runner lives on the mini PC
+  # and carries the `two-birds-deploy` label; only this job targets it, and only for pushes to main.
+  # Fork PR workflows need the owner's approval, so a stranger's PR can't reach the runner.
+  deploy:
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, two-birds-deploy]
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+    steps:
+      - name: Update the deployed copy to this commit
+        run: |
+          cd ~/two-birds-one-rope
+          git fetch --quiet origin main
+          git merge --ff-only ${{ github.sha }}
+      - name: Rebuild and restart the game
+        run: cd ~/two-birds-one-rope && docker compose up -d --build
+      - name: Check it answers
+        run: |
+          for i in $(seq 1 15); do
+            curl -sf -o /dev/null http://127.0.0.1:8100/ && exit 0
+            sleep 2
+          done
+          echo "The game didn't answer on 127.0.0.1:8100" >&2
+          cd ~/two-birds-one-rope && docker compose logs --tail 50 game
+          exit 1

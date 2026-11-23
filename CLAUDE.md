@@ -14,7 +14,7 @@ To play by hand, `npm run dev` starts the server and client. With no mic or keyb
 
 ## Deploying
 
-Production is the mini PC behind a Cloudflare Tunnel (ADR 0006): `compose.yaml` on `127.0.0.1:8100`. Deploying needs a human at home, so run `scripts/deploy-minipc.sh` in your own terminal rather than having an agent do it.
+Production is the mini PC behind a Cloudflare Tunnel (ADR 0006): `compose.yaml` on `127.0.0.1:8100`. Every push to `main` deploys itself once Check passes: the `deploy` job in `.github/workflows/check.yml` runs on a self-hosted runner on the mini PC (label `two-birds-deploy`). Setting the mini PC up (`scripts/deploy-minipc.sh`, then `scripts/setup-deploy-runner.sh`) needs a human at home in their own terminal, not an agent.
 
 ## Agent skills
 
